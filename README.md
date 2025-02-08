@@ -134,12 +134,12 @@ Defines preference matching rules:
      "filterables": {
           "1": "Male",
           "2": "Female",
-          // ... more identifiers
+
      },
      "filters": {
-          "5": ["1", "2", "3"],  // Attracted to all
-          "4": ["1", "2"],       // Attracted to Male/Female
-          // ... more rules
+          "5": ["1", "2", "3"],  
+          "4": ["1", "2"],      
+
      }
 }
 ```
