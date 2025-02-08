@@ -124,7 +124,6 @@ Defines mappings from survey responses to numerical values:
 ```json
 {
      "Response Text": "Numerical Value",
-     // ... more mappings
 }
 ```
 
