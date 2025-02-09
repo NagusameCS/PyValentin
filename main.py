@@ -12,12 +12,20 @@ from tkinter import filedialog, ttk
 import os
 import shutil
 import subprocess
-from tkinterdnd2 import DND_FILES, TkinterDnD
 from FixCSV import replace_values_in_csv
 from Ski import process_csv, calculate_distances, calculate_similarity, save_processed_data
 import json
 from tkinter.scrolledtext import ScrolledText
 import sys
+from PyValentin import SplashScreen
+import time
+
+# Detect if running as bundled application
+IS_BUNDLED = getattr(sys, 'frozen', False)
+
+# Only import tkinterdnd2 if not bundled
+if not IS_BUNDLED:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
 
 def install_dependencies():
     required_packages = ["tkinterdnd2", "numpy"]
@@ -374,9 +382,14 @@ def process_files():
 def create_ui():
     global csv_entry, config_entry, filter_entry, quality_slider, progress, status_label, root, process_button
 
-    root = TkinterDnD.Tk()
+    # Create appropriate root window based on whether we're bundled
+    if IS_BUNDLED:
+        root = tk.Tk()
+    else:
+        root = TkinterDnD.Tk()
+
     root.title("PyValentin")
-    root.geometry("600x500")  # Reduced height since we removed console
+    root.geometry("600x550")  # Reduced height since we removed console
     root.configure(bg='#1e1e1e')
 
     style = ttk.Style()
@@ -416,19 +429,26 @@ def create_ui():
     main_frame = tk.Frame(root, bg='#1e1e1e', highlightthickness=0)
     main_frame.pack(pady=20, padx=20, fill='both', expand=True)
 
-    # File input sections with improved spacing
-    for label_text, entry_var in [
-        ("CSV File", "csv_entry"),
-        ("Config File", "config_entry"),
-        ("Filter File", "filter_entry")
+    # File input sections with browse buttons
+    for label_text, entry_var, command in [
+        ("CSV File", "csv_entry", select_csv),
+        ("Config File", "config_entry", select_config),
+        ("Filter File", "filter_entry", select_filter)
     ]:
         frame = tk.Frame(main_frame, bg='#1e1e1e', highlightthickness=0)
         frame.pack(fill='x', pady=10)
         
         ttk.Label(frame, text=label_text).pack(anchor='w')
-        entry = ttk.Entry(frame, width=50)
-        entry.pack(fill='x', pady=(5,0))
+        
+        entry_frame = tk.Frame(frame, bg='#1e1e1e')
+        entry_frame.pack(fill='x', pady=(5,0))
+        
+        entry = ttk.Entry(entry_frame, width=40)
+        entry.pack(side='left', fill='x', expand=True)
         globals()[entry_var] = entry
+        
+        browse_btn = ttk.Button(entry_frame, text="Browse", command=command)
+        browse_btn.pack(side='right', padx=(5,0))
 
     # Quality slider section with improved visuals
     slider_frame = tk.Frame(main_frame, bg='#1e1e1e', highlightthickness=0)
@@ -477,10 +497,11 @@ def create_ui():
     root.bind('<Control-c>', select_config)
     root.bind('<Control-f>', select_filter)
 
-    # Configure drag and drop with updated drop handler
-    for entry in [csv_entry, config_entry, filter_entry]:
-        entry.drop_target_register(DND_FILES)
-        entry.dnd_bind('<<Drop>>', lambda e, entry=entry: drop(e, entry))
+    # Only setup drag and drop if not bundled
+    if not IS_BUNDLED:
+        for entry in [csv_entry, config_entry, filter_entry]:
+            entry.drop_target_register(DND_FILES)
+            entry.dnd_bind('<<Drop>>', lambda e, entry=entry: drop(e, entry))
 
     root.mainloop()
 
@@ -490,6 +511,40 @@ def drop(event, widget):
         widget.insert(0, event.data.strip('{}'))
         check_inputs()  # Add check after drop
 
+def main():
+    # Create root window but don't show it yet
+    if IS_BUNDLED:
+        root = tk.Tk()
+    else:
+        root = TkinterDnD.Tk()
+    root.withdraw()  # Hide the root window
+    
+    # Create and show splash screen
+    splash = SplashScreen(root)
+    start_time = time.time()
+    
+    # Simulate loading steps
+    steps = [
+        "Checking dependencies...",
+        "Initializing interface...",
+        "Loading components...",
+        "Starting PyValentin..."
+    ]
+    
+    for i, step in enumerate(steps):
+        splash.loading_label.config(text=step)
+        splash.update_progress((i + 1) * 25)
+        time.sleep(0.5)
+    
+    # Ensure splash screen stays visible for at least 3 seconds
+    elapsed_time = time.time() - start_time
+    if elapsed_time < 3:
+        time.sleep(3 - elapsed_time)
+    
+    # Close splash and show main application
+    splash.finish()
+    create_ui()
+
 if __name__ == "__main__":
     install_dependencies()
-    create_ui()
+    main()
