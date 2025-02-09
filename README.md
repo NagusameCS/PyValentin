@@ -111,7 +111,7 @@ PyValentin/
 ├── main.py           # Main application
 ├── FixCSV.py        # Data preprocessing
 ├── Ski.py           # Core algorithms
-└── PyValentin.py    # Improved UI
+├── PyValentin.py    # Improved UI
 ├── genR/            # Generated results
 ├── ASF Specific/    # Configuration files
 └── README.md        # Documentation
@@ -124,7 +124,7 @@ Defines mappings from survey responses to numerical values:
 ```json
 {
      "Response Text": "Numerical Value",
-     // ... more mappings
+
 }
 ```
 
@@ -135,12 +135,12 @@ Defines preference matching rules:
      "filterables": {
           "1": "Male",
           "2": "Female",
-          // ... more identifiers
+
      },
      "filters": {
-          "5": ["1", "2", "3"],  // Attracted to all
-          "4": ["1", "2"],       // Attracted to Male/Female
-          // ... more rules
+          "5": ["1", "2", "3"], 
+          "4": ["1", "2"],      
+
      }
 }
 ```
