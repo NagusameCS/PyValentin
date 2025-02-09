@@ -26,7 +26,10 @@ PyValentin is a sophisticated matchmaking system that uses multi-dimensional dis
 - Drag-and-drop file support
 - Comprehensive results output
 
-## Setup
+## Setup and Installation
+
+### You Only Need To Download the .ZIP
+
 1. Ensure Python 3.8+ is installed
 2. Install dependencies:
     ```bash
