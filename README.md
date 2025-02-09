@@ -1,7 +1,7 @@
 # PyValentin - Advanced Matchmaking System
 
 ## Overview
-PyValentin is a sophisticated beautiful amazing incredible matchmaking system that uses multi-dimensional distance calculations and compatibility filtering to create optimal pairs from survey responses. The system processes raw survey data through several stages, applying mathematical models to quantify compatibility. Thats a bunch of buzwords that mean it takes in data and it outputs names.
+PyValentin is a sophisticated matchmaking system that uses multi-dimensional distance calculations and compatibility filtering to create optimal pairs from survey responses. The system processes raw survey data through several stages, applying mathematical models to quantify compatibility.
 
 ## Table of Contents
 1. [Features](#features)
@@ -25,7 +25,6 @@ PyValentin is a sophisticated beautiful amazing incredible matchmaking system th
 - Interactive GUI with progress tracking
 - Drag-and-drop file support
 - Comprehensive results output
-- Again buzwords but I spent 5 hours on a typo so ill take what I can get
 
 ## Setup
 1. Ensure Python 3.8+ is installed
@@ -124,6 +123,7 @@ Defines mappings from survey responses to numerical values:
 ```json
 {
      "Response Text": "Numerical Value",
+     // ... more mappings
 }
 ```
 
@@ -134,12 +134,12 @@ Defines preference matching rules:
      "filterables": {
           "1": "Male",
           "2": "Female",
-
+          // ... more identifiers
      },
      "filters": {
-          "5": ["1", "2", "3"],  
-          "4": ["1", "2"],      
-
+          "5": ["1", "2", "3"],  // Attracted to all
+          "4": ["1", "2"],       // Attracted to Male/Female
+          // ... more rules
      }
 }
 ```
