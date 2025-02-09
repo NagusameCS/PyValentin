@@ -111,6 +111,7 @@ PyValentin/
 ├── main.py           # Main application
 ├── FixCSV.py        # Data preprocessing
 ├── Ski.py           # Core algorithms
+└── PyValentin.py    # Improved UI
 ├── genR/            # Generated results
 ├── ASF Specific/    # Configuration files
 └── README.md        # Documentation
