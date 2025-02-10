@@ -240,7 +240,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 ## Contact & Support
 Contact me for info on this project at:
-Oharawil123@asf.edu.mx
+Nagusame CS on Github
 
 ## License
 This project is licensed under the GNU General Public License v3.0 - see below for details:
