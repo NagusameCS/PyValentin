@@ -1,0 +1,5 @@
+tkinterdnd2>=0.3.0
+numpy>=1.21.0
+scipy>=1.7.0
+typing>=3.7.4
+pygame>=2.5.0

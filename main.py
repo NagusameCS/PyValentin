@@ -28,6 +28,7 @@ from utils.config import setup_styles, IS_BUNDLED
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from typing import Dict, Tuple
+import platform
 
 # Detect if running as bundled application
 IS_BUNDLED = getattr(sys, 'frozen', False)
@@ -800,7 +801,7 @@ def save_unpaired_info(unpaired_participants, csv_file, suffix=""):
 from core.analysis import MatchAnalysis
 
 def process_files():
-    """Modified process_files to include enriched pairs"""
+    """Process files with platform-specific path handling"""
     csv_file = csv_entry.get()
     config_file = config_entry.get()
     filter_file = filter_entry.get()
@@ -886,19 +887,30 @@ def load_default_paths():
         return {}
 
 def create_ui():
-    """Create the main application UI"""
+    """Create the main application UI with platform-specific adjustments"""
     global csv_entry, config_entry, filter_entry, grade_entry, quality_slider, grade_weight_slider, progress, status_label, root, process_button
 
-    # Load default paths
-    default_paths = load_default_paths()
-    
-    root = TkinterDnD.Tk() if not IS_BUNDLED else tk.Tk()
+    # Platform-specific window creation
+    if platform.system() == 'Darwin':  # macOS
+        root = TkinterDnD.Tk() if not IS_BUNDLED else tk.Tk()
+        # Set modern macOS window style
+        root.tk.call('tk::unsupported::MacWindowStyle', 'style', root._w, 'document', 'moveToActiveSpace')
+    else:  # Windows and others
+        root = TkinterDnD.Tk() if not IS_BUNDLED else tk.Tk()
+
     root.title("PyValentin")
     root.geometry("600x700")
     root.configure(bg='#1e1e1e')
 
-    setup_styles()
+    # Platform-specific UI adjustments
+    if platform.system() == 'Windows':
+        padding = 8  # Windows needs slightly different padding
+    else:
+        padding = 10  # macOS padding
 
+    # Load default paths
+    default_paths = load_default_paths()
+    
     main_frame = tk.Frame(root, bg='#1e1e1e', highlightthickness=0)
     main_frame.pack(pady=20, padx=20, fill='both', expand=True)
 
@@ -931,9 +943,15 @@ def create_ui():
                             background='#1e1e1e', foreground='#ff9900')
     status_label.pack(fill='x', pady=5)
 
-    root.bind('<Control-v>', select_csv)
-    root.bind('<Control-c>', select_config)
-    root.bind('<Control-f>', select_filter)
+    # Platform-specific key bindings
+    if platform.system() == 'Darwin':  # macOS
+        root.bind('<Command-v>', select_csv)
+        root.bind('<Command-c>', select_config)
+        root.bind('<Command-f>', select_filter)
+    else:  # Windows and others
+        root.bind('<Control-v>', select_csv)
+        root.bind('<Control-c>', select_config)
+        root.bind('<Control-f>', select_filter)
 
     for entry in [csv_entry, config_entry, filter_entry, grade_entry]:
             entry.drop_target_register(DND_FILES)

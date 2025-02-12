@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 import os
 import subprocess
+import sys
 from utils.file_handlers import process_files
 
 def create_file_input(parent, label_text, entry_var, command):
@@ -57,13 +58,23 @@ def create_action_buttons(parent, process_callback):
     return process_button
 
 def open_folder(path):
-    """Open folder in file explorer"""
-    abs_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), path)
+    """Open folder in file explorer (cross-platform)"""
+    abs_path = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), path))
     if os.path.exists(abs_path):
-        os.startfile(abs_path) if os.name == 'nt' else subprocess.run(['open', abs_path])
+        if sys.platform == 'darwin':  # macOS
+            subprocess.run(['open', abs_path])
+        elif sys.platform == 'win32':  # Windows
+            os.startfile(abs_path)
+        else:  # Linux and others
+            subprocess.run(['xdg-open', abs_path])
 
 def open_file(path):
-    """Open file with default application"""
-    abs_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), path)
+    """Open file with default application (cross-platform)"""
+    abs_path = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), path))
     if os.path.exists(abs_path):
-        os.startfile(abs_path) if os.name == 'nt' else subprocess.run(['open', abs_path])
+        if sys.platform == 'darwin':  # macOS
+            subprocess.run(['open', abs_path])
+        elif sys.platform == 'win32':  # Windows
+            os.startfile(abs_path)
+        else:  # Linux and others
+            subprocess.run(['xdg-open', abs_path])
