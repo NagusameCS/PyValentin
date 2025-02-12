@@ -12,13 +12,18 @@ from tkinter import filedialog, ttk
 import os
 import shutil
 import subprocess
-from FixCSV import replace_values_in_csv
-from Ski import process_csv, calculate_distances, calculate_similarity, save_processed_data
+import csv  # Add CSV import
+from core.FixCSV import replace_values_in_csv
+from core.Ski import process_csv, calculate_distances, calculate_similarity, save_processed_data
 import json
 from tkinter.scrolledtext import ScrolledText
 import sys
-from PyValentin import SplashScreen
+from core.PyValentin import SplashScreen
 import time
+from ui.components import create_file_input, create_quality_slider, create_action_buttons
+from core.matching import MatchMaker
+from utils.file_handlers import validate_csv_data, process_files
+from utils.config import setup_styles, IS_BUNDLED
 
 # Detect if running as bundled application
 IS_BUNDLED = getattr(sys, 'frozen', False)
@@ -36,7 +41,8 @@ def install_dependencies():
             subprocess.check_call([sys.executable, "-m", "pip", "install", package]) #Honestly not 100% sure if this work 
 
 def purge_genR_folder():
-    output_dir = os.path.join(os.path.dirname(__file__), "genR")
+    """Purge and recreate the genR folder in core directory"""
+    output_dir = os.path.join(os.path.dirname(__file__), "core", "genR")
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)
     os.makedirs(output_dir)
@@ -86,101 +92,103 @@ def select_filter(event=None):
         status_label.config(text="Filter file selected", foreground='#d4d4d4')
     check_inputs()
 
+def check_gender_preference_match(person1_data, person2_data):
+    """Check if two people are compatible based on gender preferences"""
+    def preference_accepts_gender(preference, gender):
+        # Split preference string if it contains multiple preferences
+        preferences = [p.strip() for p in str(preference).split(',')]
+        return any([
+            p == "5" or  # Accepts both genders
+            p == "No Preference" or 
+            p == gender
+            for p in preferences
+        ])
+    
+    # Check compatibility in both directions
+    person1_accepts_person2 = preference_accepts_gender(person1_data["wants"], person2_data["gender"])
+    person2_accepts_person1 = preference_accepts_gender(person2_data["wants"], person1_data["gender"])
+    
+    print(f"Checking compatibility:")
+    print(f"  Person1: {person1_data['gender']} wants {person1_data['wants']}")
+    print(f"  Person2: {person2_data['gender']} wants {person2_data['wants']}")
+    print(f"  Match: {person1_accepts_person2 and person2_accepts_person1}")
+    
+    return person1_accepts_person2 and person2_accepts_person1
+
 def filter_similarity_list(similarity_file, csv_file, filter_file):
-    print("Starting filter_similarity_list function")
-    print(f"Reading similarity file: {similarity_file}")
-    with open(similarity_file, 'r') as sim_file:
-        similarity_data = [line.strip().split(',') for line in sim_file]
-
-    print(f"Reading CSV file: {csv_file}")
-    with open(csv_file, 'r') as csv_file:
-        csv_data = [line.strip().split(',') for line in csv_file]
-    print("CSV Data: " + str(csv_data))  # Debugging statement to verify CSV data
-
-    print(f"Reading filter file: {filter_file}")
-    with open(filter_file, 'r') as f_file:
-        filters = json.load(f_file)
-
-    filterables = filters["filterables"]
-    filters = filters["filters"]
-
-    # Create a mapping from email to row index
-    email_to_row = {row[1]: row for row in csv_data}
-
+    """Filter matches based on strict gender preferences"""
+    print("Starting strict gender/preference filtering")
+    
+    # Read data files
+    with open(similarity_file, 'r') as f:
+        similarity_data = [line.strip().split(',') for line in f]
+    
+    with open(csv_file, 'r') as f:
+        reader = csv.reader(f)
+        headers = next(reader)
+        csv_data = list(reader)
+    
+    # Create email to data mapping
+    email_to_data = {}
+    for row in csv_data:
+        if len(row) >= 4:
+            email = row[1].strip()
+            gender = row[2].strip()
+            preference = row[3].strip()
+            email_to_data[email] = {
+                "gender": gender,
+                "preference": preference
+            }
+    
     filtered_similarity = []
     no_matches_users = []
-
+    
     for entry in similarity_data:
         original_email = entry[0]
-        original_row = email_to_row.get(original_email)
-        if not original_row:
-            print(f"Email {original_email} not found in CSV data")
+        original_data = email_to_data.get(original_email)
+        if not original_data:
             continue
-
-        original_filter_value = str(original_row[2]).strip()  # Use index 2 for 'a'
-        original_allowed_filterables = filters.get(original_filter_value, [])
-        print(f"Processing {original_email} with filter value {original_filter_value} and allowed filterables {original_allowed_filterables}")
-
+            
         filtered_entry = [original_email]
-        for email in entry[1:]:
-            row = email_to_row.get(email)
-            if not row:
-                print(f"Email {email} not found in CSV data")
+        valid_matches = []
+        
+        for potential_match in entry[1:]:
+            if potential_match == "No matches found":
                 continue
-
-            candidate_filter_value = str(row[3]).strip()  # Use index 3 for 'b'
-            candidate_allowed_filterables = filters.get(candidate_filter_value, [])
-
-            print(f"Checking match: {original_email} ({original_filter_value}) - {email} ({candidate_filter_value})")
-            print(f"Filter {original_filter_value} allows: {original_allowed_filterables}")
-            print(f"Filter {candidate_filter_value} allows: {candidate_allowed_filterables}")
-            print(f"Match condition: {'8' in (original_filter_value, candidate_filter_value)} or ({original_filter_value in candidate_allowed_filterables} and {candidate_filter_value in original_allowed_filterables}) or ({original_filter_value == '3' and candidate_filter_value == '8'}) or ({original_filter_value == '8' and candidate_filter_value == '3'})")
-            if "8" in (original_filter_value, candidate_filter_value) or (
-                original_filter_value in candidate_allowed_filterables and candidate_filter_value in original_allowed_filterables
-            ) or (original_filter_value == "3" and candidate_filter_value == "8") or (original_filter_value == "8" and candidate_filter_value == "3"):
-                print(f"Match found: {original_email} ({original_filter_value}) y {email} ({candidate_filter_value})")
-                filtered_entry.append(email)
-            else:
-                print(f"No match: {original_email} ({original_filter_value}) x {email} ({candidate_filter_value})")
-
-        if len(filtered_entry) == 1:
-            print(f"No matches found for {original_email}")
+                
+            match_data = email_to_data.get(potential_match)
+            if not match_data:
+                continue
+            
+            if check_gender_preference_match(original_data, match_data):
+                valid_matches.append(potential_match)
+        
+        if valid_matches:
+            filtered_entry.extend(valid_matches)
+        else:
             filtered_entry.append("No matches found")
             no_matches_users.append(original_email)
-
+            
         filtered_similarity.append(filtered_entry)
-
-    # Analyze users with no matches
-    print("Analyzing users with no matches found:")
-    for email in no_matches_users:
-        row = email_to_row.get(email)
-        if row:
-            print(f"User: {email}, Gender: {row[2]}, Attracted to: {row[3]}")
-
-    output_file = os.path.join(os.path.dirname(__file__), "genR", "filtered_similarity_list.csv")
-    print(f"Saving filtered similarity list to: {output_file}")
-    with open(output_file, 'w') as out_file:
+    
+    output_file = os.path.join(os.path.dirname(__file__), "core", "genR", "filtered_similarity_list.csv")
+    with open(output_file, 'w') as f:
         for entry in filtered_similarity:
-            out_file.write(','.join(entry) + '\n')
-    print("Filtered similarity list saved successfully")
-
-    # New step to handle edge cases
-    handle_edge_cases(no_matches_users, csv_data, filters, email_to_row, output_file)
+            f.write(','.join(entry) + '\n')
+            
+    return filtered_similarity, no_matches_users
 
 def handle_edge_cases(no_matches_users, csv_data, filters, email_to_row, filtered_similarity_file):
     print("Handling edge cases")
     edge_cases = []
 
-    # First entry: users with no matches found
     edge_cases.append(no_matches_users)
 
-    # Second entry: users with filters that should encapsulate those in the first entry
     encapsulating_users = []
     for row in csv_data:
         email = row[1]
-        # Check specifically in the attraction field (index 3) for "8"
         has_eight = str(row[3]).strip() == "8"
-        filter_value = str(row[2]).strip()  # Gender value
+        filter_value = str(row[2]).strip()
         if has_eight or (filter_value == "8") or (filter_value in filters and any(
             str(email_to_row[no_match_user][2]).strip() in filters[filter_value] 
             for no_match_user in no_matches_users 
@@ -189,15 +197,13 @@ def handle_edge_cases(no_matches_users, csv_data, filters, email_to_row, filtere
             encapsulating_users.append(email)
     edge_cases.append(encapsulating_users)
 
-    # Following entries: determine matches
     for no_match_email in no_matches_users:
         no_match_row = email_to_row.get(no_match_email)
-        no_match_filter_value = str(no_match_row[2]).strip()  # Gender value
+        no_match_filter_value = str(no_match_row[2]).strip()
         matches = [no_match_email]
         for email in encapsulating_users:
             row = email_to_row.get(email)
-            candidate_filter_value = str(row[3]).strip()  # Attraction value
-            # Match if either has "8" or they match each other's preferences
+            candidate_filter_value = str(row[3]).strip()
             if "8" in (no_match_filter_value, candidate_filter_value) or (
                 candidate_filter_value in filters.get(no_match_filter_value, []) and
                 str(no_match_row[3]).strip() in filters.get(str(row[2]).strip(), [])
@@ -205,16 +211,6 @@ def handle_edge_cases(no_matches_users, csv_data, filters, email_to_row, filtere
                 matches.append(email)
         edge_cases.append(matches)
 
-    # Commenting out the edge cases CSV saving part
-    # Save edge cases to CSV
-    # edge_cases_file = os.path.join(os.path.dirname(__file__), "genR", "edge_cases.csv")
-    # print(f"Saving edge cases to: {edge_cases_file}")
-    # with open(edge_cases_file, 'w') as out_file:
-    #     for entry in edge_cases:
-    #         out_file.write(','.join(entry) + '\n')
-    # print("Edge cases saved successfully")
-
-    # Update original filtered similarity list with new indices
     update_filtered_similarity_list(filtered_similarity_file, edge_cases)
 
 def update_filtered_similarity_list(filtered_similarity_file, edge_cases):
@@ -233,273 +229,410 @@ def update_filtered_similarity_list(filtered_similarity_file, edge_cases):
             out_file.write(','.join(entry) + '\n')
     print("Filtered similarity list updated successfully")
 
-def create_optimal_pairs(filtered_similarity_file, quality_weight=0.5):
-    print(f"Creating optimal pairs with quality weight: {quality_weight}")
-    pairs = []
-    unpaired = []
-    used_emails = set()
+def validate_csv_data(csv_file):
+    """Validate CSV file format and required columns"""
+    required_columns = ["Email Address", "What is your gender?", "What gender are you attracted to?"]
+    try:
+        with open(csv_file, 'r') as f:
+            header = f.readline().strip().split(',')
+            if not all(col in header for col in required_columns):
+                raise ValueError("CSV missing required columns")
+            for line in f:
+                if len(line.strip().split(',')) != len(header):
+                    raise ValueError("Malformed CSV row detected")
+        return True
+    except Exception as e:
+        print(f"CSV validation error: {str(e)}")
+        return False
 
-    with open(filtered_similarity_file, 'r') as f:
-        similarity_data = [line.strip().split(',') for line in f]
+def prefilter_by_preferences(similarity_data, csv_file):
+    """Remove incompatible matches using strict preference filtering"""
+    print("\n=== Starting Preference Filtering ===")
     
-    # Sort entries by number of potential matches (more matches = more flexibility)
-    similarity_data.sort(key=lambda x: len(x[1:]) if x[1] != "No matches found" else 0, 
-                        reverse=True if quality_weight < 0.5 else False)
+    gender_prefs = load_gender_preferences(csv_file)
+    print(f"Loaded {len(gender_prefs)} participant preferences")
     
-    # First pass - match pairs based on quality weight
+    filtered_data = []
+    removal_count = 0
+    match_count = 0
+    
+    for entry in similarity_data:
+        person_email = entry[0]
+        person_data = gender_prefs.get(person_email)
+        if not person_data:
+            print(f"⚠️  Skipping {person_email} - no preference data")
+            continue
+            
+        print(f"\n👤 Processing {person_email}")
+        print(f"   Is: {person_data['gender']}, Wants: {person_data['wants']}")
+        
+        filtered_entry = [person_email]
+        matches = []
+        
+        for match_email in entry[1:]:
+            if match_email == "No matches found":
+                continue
+                
+            match_data = gender_prefs.get(match_email)
+            if not match_data:
+                continue
+            
+            print(f"\n   Checking {match_email}")
+            print(f"   Is: {match_data['gender']}, Wants: {match_data['wants']}")
+            
+            # Check compatibility
+            match_wants_person = (
+                match_data["wants"] == "5" or  # Accepts both genders
+                match_data["wants"] == "No Preference" or
+                match_data["wants"] == person_data["gender"]
+            )
+            
+            person_wants_match = (
+                person_data["wants"] == "5" or  # Accepts both genders
+                person_data["wants"] == "No Preference" or
+                person_data["wants"] == match_data["gender"]
+            )
+            
+            if match_wants_person and person_wants_match:
+                matches.append(match_email)
+                match_count += 1
+                print(f"   ✅ Compatible match")
+            else:
+                for other_entry in similarity_data:
+                    if other_entry[0] == match_email and person_email in other_entry:
+                        other_entry.remove(person_email)
+                        removal_count += 1
+                print(f"   ❌ Incompatible - removed mutual entries")
+                print(f"      Reason: {get_incompatibility_reason(person_data, match_data)}")
+        
+        if matches:
+            filtered_entry.extend(matches)
+        else:
+            filtered_entry.append("No matches found")
+            
+        filtered_data.append(filtered_entry)
+    
+    print("\n=== Filtering Summary ===")
+    print(f"Total entries processed: {len(similarity_data)}")
+    print(f"Compatible matches found: {match_count}")
+    print(f"Incompatible removals: {removal_count}")
+    print(f"Entries with matches: {len([e for e in filtered_data if len(e) > 2])}")
+    
+    return filtered_data
+
+def get_incompatibility_reason(person1, person2):
+    """Get human-readable incompatibility reason"""
+    def describe_preference(pref):
+        if pref == "5":
+            return "both male and female"
+        return pref
+    
+    if person1["wants"] not in ["No Preference", "5"] and person1["wants"] != person2["gender"]:
+        return f"{person1['gender']} wants {describe_preference(person1['wants'])} but match is {person2['gender']}"
+    if person2["wants"] not in ["No Preference", "5"] and person2["wants"] != person1["gender"]:
+        return f"{person2['gender']} wants {describe_preference(person2['wants'])} but match is {person1['gender']}"
+    return "Unknown incompatibility"
+
+def load_gender_preferences(csv_file):
+    """Load gender and preference data from CSV"""
+    gender_prefs = {}
+    with open(csv_file, 'r', encoding='utf-8-sig') as f:
+        reader = csv.reader(f)
+        headers = next(reader)
+        email_idx = headers.index("Email Address")
+        gender_idx = headers.index("What is your gender?")
+        pref_idx = headers.index("What gender are you attracted to?")
+        
+        for row in reader:
+            if len(row) > max(email_idx, gender_idx, pref_idx):
+                email = row[email_idx].strip()
+                gender = row[gender_idx].strip()
+                # Handle multiple preferences
+                preference = row[pref_idx].strip()
+                gender_prefs[email] = {
+                    "gender": gender,
+                    "wants": preference  # Keep full preference string
+                }
+    return gender_prefs
+
+def create_pairs(similarity_data, quality_weight=0.5):
+    """Create pairs from similarity data with preference validation"""
+    print("\nStarting pairing process...")
+    
+    email_matches = {}
     for entry in similarity_data:
         email = entry[0]
+        matches = [m for m in entry[1:] if m != "No matches found"]
+        if matches:
+            email_matches[email] = matches
+            print(f"  {email} has {len(matches)} potential matches")
+    
+    pairs = []
+    used_emails = set()
+    
+    participants = sorted(
+        [(email, matches) for email, matches in email_matches.items()],
+        key=lambda x: len(x[1])
+    )
+    
+    print(f"\nProcessing {len(participants)} participants...")
+    
+    for email, potential_matches in participants:
         if email in used_emails:
             continue
-        
-        if len(entry) <= 2 and entry[1] == "No matches found":
-            unpaired.append(email)
-            continue
-
-        available_matches = [e for e in entry[1:] if e not in used_emails]
-        
-        if available_matches:
-            if quality_weight > 0.5:
-                # Prioritize best matches
-                best_match = available_matches[0]
-            else:
-                # Consider later matches to increase total pairs
-                match_index = int((len(available_matches) - 1) * (1 - quality_weight) * 2)
-                best_match = available_matches[min(match_index, len(available_matches) - 1)]
             
-            pairs.append([email, best_match])
+        print(f"\nProcessing {email}")
+        print(f"  Has {len(potential_matches)} potential matches")
+        
+        best_match = None
+        best_score = -1
+        
+        for match in potential_matches:
+            if match in used_emails:
+                continue
+                
+            if match in email_matches and email in email_matches[match]:
+                match_score = 1.0 - (potential_matches.index(match) / len(potential_matches))
+                reverse_score = 1.0 - (email_matches[match].index(email) / len(email_matches[match]))
+                
+                score = (match_score + reverse_score) / 2
+                print(f"    Checking {match} - mutual match with score {score:.2f}")
+                
+                if score > best_score:
+                    best_score = score
+                    best_match = match
+            else:
+                print(f"    Skipping {match} - not a mutual match")
+                
+        if best_match:
+            print(f"  ✓ Matched with {best_match} (score: {best_score:.2f})")
+            pairs.append([email, best_match, best_score])
             used_emails.add(email)
             used_emails.add(best_match)
         else:
-            unpaired.append(email)
+            print(f"  ✗ No valid match found")
+    
+    print(f"\nCreated {len(pairs)} valid pairs")
+    return pairs
 
-    # Second pass with remaining singles
-    if unpaired and quality_weight < 0.8:  # Skip second pass if high quality priority
-        print(f"Second pass optimization for {len(unpaired)} unpaired entries...")
-        retry_unpaired = unpaired.copy()
-        unpaired = []
-        
-        available_matches_map = {}
-        for email in retry_unpaired:
-            for entry in similarity_data:
-                if entry[0] == email:
-                    available_matches_map[email] = [e for e in entry[1:] if e != "No matches found"]
-                    break
-
-        while retry_unpaired:
-            current_email = retry_unpaired.pop(0)
-            potential_matches = available_matches_map.get(current_email, [])
-            
-            best_match = None
-            for match in potential_matches:
-                if match in retry_unpaired:
-                    match_potentials = available_matches_map.get(match, [])
-                    if current_email in match_potentials:
-                        best_match = match
-                        break
-            
-            if best_match:
-                pairs.append([current_email, best_match])
-                retry_unpaired.remove(best_match)
-                used_emails.add(current_email)
-                used_emails.add(best_match)
-            else:
-                unpaired.append(current_email)
-
-    # Save results
-    output_file = os.path.join(os.path.dirname(__file__), "genR", "optimal_pairs.csv")
-    with open(output_file, 'w') as f:
+def create_optimal_pairs(filtered_similarity_file, csv_file, quality_weight=0.5):
+    """Create optimal pairs ensuring mutual compatibility"""
+    print("Creating optimal pairs...")
+    
+    with open(filtered_similarity_file, 'r') as f:
+        similarity_data = [line.strip().split(',') for line in f]
+    
+    print(f"Read {len(similarity_data)} entries from similarity file")
+    
+    pairs = create_pairs(similarity_data, quality_weight)
+    
+    output_file = os.path.join(os.path.dirname(__file__), "core", "genR", "optimal_pairs.csv")
+    with open(output_file, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Person 1", "Person 2", "Match Quality"])
         for pair in pairs:
-            f.write(f"{pair[0]},{pair[1]}\n")
-    print(f"Saved {len(pairs)} optimal pairs")
+            writer.writerow(pair)
+    
+    unpaired = find_unpaired_participants(output_file, csv_file)
+    save_unpaired_info(unpaired, csv_file)
+    
+    return pairs
 
-    if unpaired:
-        unpaired_file = os.path.join(os.path.dirname(__file__), "genR", "unpaired_entries.csv")
-        with open(unpaired_file, 'w') as f:
-            for email in unpaired:
-                f.write(f"{email}\n")
-        print(f"Saved {len(unpaired)} unpaired entries after optimization")
+def enrich_optimal_pairs(optimal_pairs_file, original_csv_file):
+    """Add gender and preference information to optimal pairs"""
+    with open(original_csv_file, 'r', encoding='utf-8-sig') as f:
+        reader = csv.reader(f)
+        headers = next(reader)
+        
+        email_idx = headers.index("Email Address")
+        gender_idx = headers.index("What is your gender?")
+        preference_idx = headers.index("What gender are you attracted to?")
+        
+        email_data = {}
+        for row in reader:
+            if len(row) > max(email_idx, gender_idx, preference_idx):
+                email = row[email_idx].strip()
+                gender = row[gender_idx].strip()
+                preference = row[preference_idx].strip()
+                email_data[email] = (gender, preference)
+    
+    pairs_with_info = []
+    with open(optimal_pairs_file, 'r') as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        for row in reader:
+            email1, email2, quality = row
+            gender1, pref1 = email_data.get(email1, ('Unknown', 'Unknown'))
+            gender2, pref2 = email_data.get(email2, ('Unknown', 'Unknown'))
+            pairs_with_info.append([
+                email1, f"(is: {gender1}, wants: {pref1})",
+                email2, f"(is: {gender2}, wants: {pref2})",
+                quality
+            ])
+
+    enriched_file = os.path.join(os.path.dirname(__file__), "core", "genR", "optimal_pairs_with_info.csv")
+    with open(enriched_file, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Person 1", "Gender & Preference 1", "Person 2", "Gender & Preference 2", "Match Quality"])
+        writer.writerows(pairs_with_info)
+    
+    print("Created enriched optimal pairs file with gender and preference information")
+
+def find_unpaired_participants(optimal_pairs_file, csv_file):
+    """Find participants who weren't matched"""
+    all_participants = set()
+    with open(csv_file, 'r', encoding='utf-8-sig') as f:
+        reader = csv.reader(f)
+        headers = next(reader)
+        email_idx = headers.index("Email Address")
+        for row in reader:
+            all_participants.add(row[email_idx].strip())
+    
+    paired_participants = set()
+    with open(optimal_pairs_file, 'r') as f:
+        reader = csv.reader(f)
+        next(reader)
+        for row in reader:
+            paired_participants.add(row[0])
+            paired_participants.add(row[1])
+            
+    unpaired = all_participants - paired_participants
+    print(f"Found {len(unpaired)} unpaired participants")
+    return unpaired
+
+def save_unpaired_info(unpaired_participants, csv_file):
+    """Create CSV with unpaired participants and their preferences"""
+    email_to_data = {}
+    with open(csv_file, 'r', encoding='utf-8-sig') as f:
+        reader = csv.reader(f)
+        headers = next(reader)
+        email_idx = headers.index("Email Address")
+        gender_idx = headers.index("What is your gender?")
+        pref_idx = headers.index("What gender are you attracted to?")
+        
+        for row in reader:
+            email = row[email_idx].strip()
+            if email in unpaired_participants:
+                gender = row[gender_idx].strip()
+                preference = row[pref_idx].strip()
+                email_to_data[email] = (gender, preference)
+    
+    output_file = os.path.join(os.path.dirname(__file__), "core", "genR", "unpaired_entries.csv")
+    with open(output_file, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Email", "Gender & Preference"])
+        for email in sorted(unpaired_participants):
+            gender, pref = email_to_data.get(email, ('Unknown', 'Unknown'))
+            writer.writerow([email, f"(is: {gender}, wants: {pref})"])
 
 def process_files():
+    """Modified process_files to include enriched pairs"""
     csv_file = csv_entry.get()
     config_file = config_entry.get()
     filter_file = filter_entry.get()
     
-    if csv_file and config_file and filter_file:
-        progress['value'] = 0
+    if not all([csv_file, config_file, filter_file]):
+        status_label.config(text="All files must be selected", foreground='#ff0000')
+        return
+
+    progress['value'] = 0
+    root.update()
+    
+    try:
+        status_label.config(text="Stage 1/5: Initializing and processing CSV...", foreground='#d4d4d4')
+        purge_genR_folder()
+        output_file = os.path.join(os.path.dirname(__file__), "core", "genR", "modified_csv.csv")
+        replace_values_in_csv(csv_file, config_file, output_file)
+        progress['value'] = 20
         root.update()
         
-        try:
-            # Stage 1: Initial setup and CSV processing (20%)
-            status_label.config(text="Stage 1/5: Initializing and processing CSV...", foreground='#d4d4d4')
-            purge_genR_folder()
-            output_file = os.path.join(os.path.dirname(__file__), "genR", "modified_csv.csv")
-            replace_values_in_csv(csv_file, config_file, output_file)
-            progress['value'] = 20
-            root.update()
-            
-            # Stage 2: Data processing and distance calculation (40%)
-            status_label.config(text="Stage 2/5: Calculating distances...", foreground='#d4d4d4')
-            data = process_csv(output_file)
-            distances = calculate_distances(data)
-            save_processed_data(distances, os.path.join(os.path.dirname(__file__), "genR", "processed_distances.csv"))
-            progress['value'] = 40
-            root.update()
-            
-            # Stage 3: Similarity calculation (60%)
-            status_label.config(text="Stage 3/5: Computing similarities...", foreground='#d4d4d4')
-            similarity = calculate_similarity(distances)
-            save_processed_data(similarity, os.path.join(os.path.dirname(__file__), "genR", "similarity_list.csv"))
-            progress['value'] = 60
-            root.update()
-            
-            # Stage 4: Filter similarity list (80%)
-            status_label.config(text="Stage 4/5: Filtering matches...", foreground='#d4d4d4')
-            filter_similarity_list(
-                os.path.join(os.path.dirname(__file__), "genR", "similarity_list.csv"),
-                output_file,
-                filter_file
-            )
-            progress['value'] = 80
-            root.update()
-            
-            # Stage 5: Create optimal pairs (100%)
-            status_label.config(text="Stage 5/5: Creating optimal pairs...", foreground='#d4d4d4')
-            quality_weight = quality_slider.get()
-            filtered_similarity_file = os.path.join(os.path.dirname(__file__), "genR", "filtered_similarity_list.csv")
-            create_optimal_pairs(filtered_similarity_file, quality_weight)
-            progress['value'] = 100
-            root.update()
-            
-            # Show completion message with success color
-            status_label.config(text="Processing completed successfully! Check the genR Folder for all the Data", foreground='#00ff00')
-            
-        except Exception as e:
-            # Show error message with error color
-            status_label.config(text=f"Error: {str(e)}", foreground='#ff0000')
-            progress['value'] = 0
+        status_label.config(text="Stage 2/5: Calculating distances...", foreground='#d4d4d4')
+        data = process_csv(output_file)
+        distances = calculate_distances(data)
+        save_processed_data(distances, os.path.join(os.path.dirname(__file__), "core", "genR", "processed_distances.csv"))
+        progress['value'] = 40
+        root.update()
+        
+        status_label.config(text="Stage 3/5: Computing similarities...", foreground='#d4d4d4')
+        similarity = calculate_similarity(distances)
+        save_processed_data(similarity, os.path.join(os.path.dirname(__file__), "core", "genR", "similarity_list.csv"))
+        progress['value'] = 60
+        root.update()
+        
+        status_label.config(text="Stage 4/5: Pre-filtering matches...", foreground='#d4d4d4')
+        similarity_file = os.path.join(os.path.dirname(__file__), "core", "genR", "similarity_list.csv")
+        
+        print("Reading original similarity data...")
+        with open(similarity_file, 'r') as f:
+            similarity_data = [line.strip().split(',') for line in f]
+        print(f"Found {len(similarity_data)} original entries")
+        
+        filtered_data = prefilter_by_preferences(similarity_data, csv_file)
+        
+        filtered_file = os.path.join(os.path.dirname(__file__), "core", "genR", "filtered_similarity_list.csv")
+        with open(filtered_file, 'w') as f:
+            for entry in filtered_data:
+                f.write(','.join(entry) + '\n')
+        
+        progress['value'] = 80
+        root.update()
+        
+        status_label.config(text="Stage 5/5: Creating optimal pairs...", foreground='#d4d4d4')
+        quality_weight = quality_slider.get()
+        filtered_similarity_file = os.path.join(os.path.dirname(__file__), "core", "genR", "filtered_similarity_list.csv")
+        create_optimal_pairs(filtered_similarity_file, csv_file, quality_weight)
+        progress['value'] = 100
+        root.update()
+        
+        status_label.config(text="Final Stage: Adding participant information...", foreground='#d4d4d4')
+        optimal_pairs_file = os.path.join(os.path.dirname(__file__), "core", "genR", "optimal_pairs.csv")
+        enrich_optimal_pairs(optimal_pairs_file, csv_file)
+        
+        status_label.config(text="Processing completed! Check core/genR for all Data", foreground='#00ff00')
+        
+    except Exception as e:
+        status_label.config(text=f"Error: {str(e)}", foreground='#ff0000')
+        progress['value'] = 0
 
 def create_ui():
+    """Create the main application UI"""
     global csv_entry, config_entry, filter_entry, quality_slider, progress, status_label, root, process_button
 
-    # Create appropriate root window based on whether we're bundled
-    if IS_BUNDLED:
-        root = tk.Tk()
-    else:
-        root = TkinterDnD.Tk()
-
+    root = TkinterDnD.Tk() if not IS_BUNDLED else tk.Tk()
     root.title("PyValentin")
-    root.geometry("600x550")  # Reduced height since we removed console
+    root.geometry("600x550")
     root.configure(bg='#1e1e1e')
 
-    style = ttk.Style()
-    
-    # Configure styles with proper background and highlight colors
-    style.configure('TButton',
-        font=('Helvetica', 12),
-        background='#007acc',
-        foreground='#ffffff',
-        focuscolor='#007acc',
-        borderwidth=0,
-        highlightthickness=0)
-    
-    style.configure('TLabel',
-        font=('Helvetica', 12),
-        background='#1e1e1e',
-        foreground='#d4d4d4',
-        borderwidth=0,
-        highlightthickness=0)
-    
-    style.configure('TEntry',
-        font=('Helvetica', 12),
-        fieldbackground='#252526',
-        foreground='#d4d4d4',
-        borderwidth=1,
-        highlightthickness=0,
-        selectbackground='#264f78',
-        selectforeground='#ffffff')
-    
-    style.configure('Horizontal.TScale',
-        background='#1e1e1e',
-        troughcolor='#252526',
-        borderwidth=0,
-        highlightthickness=0)
+    setup_styles()
 
-    # Create and configure main frame
     main_frame = tk.Frame(root, bg='#1e1e1e', highlightthickness=0)
     main_frame.pack(pady=20, padx=20, fill='both', expand=True)
 
-    # File input sections with browse buttons
-    for label_text, entry_var, command in [
-        ("CSV File", "csv_entry", select_csv),
-        ("Config File", "config_entry", select_config),
-        ("Filter File", "filter_entry", select_filter)
-    ]:
-        frame = tk.Frame(main_frame, bg='#1e1e1e', highlightthickness=0)
-        frame.pack(fill='x', pady=10)
-        
-        ttk.Label(frame, text=label_text).pack(anchor='w')
-        
-        entry_frame = tk.Frame(frame, bg='#1e1e1e')
-        entry_frame.pack(fill='x', pady=(5,0))
-        
-        entry = ttk.Entry(entry_frame, width=40)
-        entry.pack(side='left', fill='x', expand=True)
-        globals()[entry_var] = entry
-        
-        browse_btn = ttk.Button(entry_frame, text="Browse", command=command)
-        browse_btn.pack(side='right', padx=(5,0))
-
-    # Quality slider section with improved visuals
-    slider_frame = tk.Frame(main_frame, bg='#1e1e1e', highlightthickness=0)
-    slider_frame.pack(fill='x', pady=20)
+    input_frame = tk.Frame(main_frame, bg='#1e1e1e')
+    input_frame.pack(fill='x', pady=10)
     
-    ttk.Label(slider_frame, text="Quality vs Quantity Balance").pack(anchor='w')
+    csv_entry = create_file_input(input_frame, "CSV File", "csv_entry", select_csv)
+    config_entry = create_file_input(input_frame, "Config File", "config_entry", select_config)
+    filter_entry = create_file_input(input_frame, "Filter File", "filter_entry", select_filter)
     
-    quality_slider = ttk.Scale(slider_frame, from_=0.0, to=1.0, orient='horizontal')
-    quality_slider.set(0.5)
-    quality_slider.pack(fill='x', pady=(5,0))
+    control_frame = tk.Frame(main_frame, bg='#1e1e1e')
+    control_frame.pack(fill='x', pady=10)
     
-    label_frame = tk.Frame(slider_frame, bg='#1e1e1e', highlightthickness=0)
-    label_frame.pack(fill='x', pady=(5,0))
+    quality_slider = create_quality_slider(control_frame)
+    progress = ttk.Progressbar(control_frame, orient='horizontal', length=300, mode='determinate')
+    progress.pack(fill='x', pady=5)
     
-    ttk.Label(label_frame, text="Quantity Priority", style='Small.TLabel').pack(side='left')
-    ttk.Label(label_frame, text="Quality Priority", style='Small.TLabel').pack(side='right')
-
-    # Add progress bar
-    progress_frame = tk.Frame(main_frame, bg='#1e1e1e', highlightthickness=0)
-    progress_frame.pack(fill='x', pady=20)
+    process_button = create_action_buttons(main_frame, process_files)
     
-    progress = ttk.Progressbar(
-        progress_frame,
-        orient='horizontal',
-        length=300,
-        mode='determinate'
-    )
-    progress.pack(fill='x', pady=(5,0))
+    status_label = ttk.Label(main_frame, text="Please select all files",
+                            background='#1e1e1e', foreground='#ff9900')
+    status_label.pack(fill='x', pady=5)
 
-    # Add status label
-    status_label = ttk.Label(
-        progress_frame,
-        text="Please select all required files",
-        background='#1e1e1e',
-        foreground='#ff9900',
-        anchor='center'
-    )
-    status_label.pack(fill='x', pady=(5,0))
-
-    # Add process button (disabled by default)
-    process_button = ttk.Button(main_frame, text="Process Files", command=process_files, state='disabled')
-    process_button.pack(pady=20)
-
-    # Bind events
     root.bind('<Control-v>', select_csv)
     root.bind('<Control-c>', select_config)
     root.bind('<Control-f>', select_filter)
 
-    # Only setup drag and drop if not bundled
-    if not IS_BUNDLED:
-        for entry in [csv_entry, config_entry, filter_entry]:
+    for entry in [csv_entry, config_entry, filter_entry]:
             entry.drop_target_register(DND_FILES)
             entry.dnd_bind('<<Drop>>', lambda e, entry=entry: drop(e, entry))
 
@@ -509,21 +642,18 @@ def drop(event, widget):
     if event.data:
         widget.delete(0, tk.END)
         widget.insert(0, event.data.strip('{}'))
-        check_inputs()  # Add check after drop
+        check_inputs()
 
 def main():
-    # Create root window but don't show it yet
     if IS_BUNDLED:
         root = tk.Tk()
     else:
         root = TkinterDnD.Tk()
-    root.withdraw()  # Hide the root window
+    root.withdraw()
     
-    # Create and show splash screen
     splash = SplashScreen(root)
     start_time = time.time()
     
-    # Simulate loading steps
     steps = [
         "Checking dependencies...",
         "Initializing interface...",
@@ -536,12 +666,10 @@ def main():
         splash.update_progress((i + 1) * 25)
         time.sleep(0.5)
     
-    # Ensure splash screen stays visible for at least 3 seconds
     elapsed_time = time.time() - start_time
-    if elapsed_time < 3:
+    if (elapsed_time < 3):
         time.sleep(3 - elapsed_time)
     
-    # Close splash and show main application
     splash.finish()
     create_ui()
 
