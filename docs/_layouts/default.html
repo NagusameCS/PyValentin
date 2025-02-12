@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ site.title }}{% if page.title %} - {{ page.title }}{% endif %}</title>
+    <meta name="description" content="{{ site.description }}">
+    <link rel="stylesheet" href="{{ '/assets/css/style.css?v=' | append: site.github.build_revision | relative_url }}">
+    {% seo %}
+    <script type="text/javascript" async
+      src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-MML-AM_CHTML">
+    </script>
+  </head>
+  <body>
+    <header role="banner">
+      <div class="wrapper">
+        <h1><a href="{{ '/' | relative_url }}">{{ site.title }}</a></h1>
+        <p>{{ site.description }}</p>
+        <nav role="navigation">
+          {% for link in site.navbar_links %}
+          <a href="{{ link.url | relative_url }}" {% if page.url == link.url %}class="active"{% endif %}>
+            {{ link.title }}
+          </a>
+          {% endfor %}
+        </nav>
+      </div>
+    </header>
+
+    <div class="wrapper">
+      <main role="main">
+        {{ content }}
+      </main>
+
+      <footer role="contentinfo">
+        <p>Maintained by <a href="{{ site.github.owner_url }}">{{ site.github.owner_name }}</a></p>
+      </footer>
+    </div>
+  </body>
+</html>
