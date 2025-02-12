@@ -1,30 +1,43 @@
-theme: jekyll-theme-minimal
-title: PyValentin Documentation
-description: Advanced matching system for optimal pairing
-show_downloads: true
-google_analytics:
-markdown: kramdown
-kramdown:
-  math_engine: mathjax
-  syntax_highlighter: rouge
+title: PyValentin
+description: Advanced Matchmaking System
 baseurl: "/PyValentin"
 url: ""
 repository: "NagusameCS/PyValentin"
-github:
-  is_project_page: true
-  repository_url: "https://github.com/NagusameCS/PyValentin"
-  owner_url: "https://github.com/NagusameCS"
-  owner_name: "NagusameCS"
-plugins:
-  - jekyll-seo-tag
-  - jekyll-sitemap
 
-navbar_links:
-  - title: Home
-    url: /
+# Build settings
+source: docs
+markdown: kramdown
+theme: jekyll-theme-minimal
+
+# Directory settings
+include: ["_pages"]
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: "default"
+
+kramdown:
+  math_engine: mathjax
+  syntax_highlighter: rouge
+
+# SEO settings
+author: NagusameCS
+twitter:
+  username: NagusameCS
+  card: summary
+
+# Navigation structure
+nav_links:
+  - title: Features
+    url: /#features
   - title: Documentation
-    url: /docs
+    url: /docs/
   - title: Interactive
     url: /interactive
   - title: GitHub
     url: https://github.com/NagusameCS/PyValentin
+
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
