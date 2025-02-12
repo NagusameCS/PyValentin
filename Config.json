@@ -1,9 +1,14 @@
 {
-    "Male, Female, No Prefrence": "5",
+    "Male, Female, No Prefrence": "8",
     "Male, Female": "4",
-    "Male, No Prefrence": "6",
-    "Female, No Prefrence": "7",
+    "Male, No Prefrence": "8",
+    "Female, No Prefrence": "8",
     "No Prefrence": "8",
+
+    "Male, Female, No Preference": "8",
+    "Male, No Preference": "8",
+    "Female, No Perefrence": "8",
+    "No Preference": "8",
 
     "Male": "1",
     "Female": "2",
