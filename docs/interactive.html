@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Demo - PyValentin</title>
+    <link rel="stylesheet" href="/PyValentin/css/style.css">
+    <style>
+        .demo-container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+        
+        .input-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        
+        .input-group input,
+        .input-group textarea {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-family: inherit;
+        }
+        
+        .input-group textarea {
+            height: 150px;
+            resize: vertical;
+        }
+        
+        .slider-container {
+            margin: 1rem 0;
+        }
+        
+        .slider-container label {
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+        
+        .result-container {
+            margin-top: 2rem;
+            padding: 1rem;
+            background-color: var(--code-background);
+            border-radius: 8px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <nav>
+            <div class="nav-wrapper">
+                <div class="logo">
+                    <h1>PyValentin</h1>
+                    <span class="version">v5.82.2</span>
+                </div>
+                <div class="nav-links">
+                    <a href="/PyValentin/#features">Features</a>
+                    <a href="/PyValentin/docs/">Documentation</a>
+                    <a href="/PyValentin/interactive.html" class="active">Interactive Demo</a>
+                    <a href="https://github.com/NagusameCS/PyValentin" class="github-link">GitHub</a>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <main class="demo-container">
+        <h1>Interactive Demo</h1>
+        <p>Try PyValentin's matching algorithms with sample data or your own input.</p>
+
+        <div class="input-group">
+            <label for="sampleData">Sample Data (CSV format)</label>
+            <textarea id="sampleData">Email,Gender,Preference,Grade
+student1@example.com,Male,Female,85
+student2@example.com,Female,Male,88
+student3@example.com,Male,Female,92
+student4@example.com,Female,Male,90</textarea>
+        </div>
+
+        <div class="slider-container">
+            <label for="gradeWeight">Grade Weight: <span id="gradeWeightValue">0.7</span></label>
+            <input type="range" id="gradeWeight" min="0" max="1" step="0.1" value="0.7">
+        </div>
+
+        <div class="slider-container">
+            <label for="preferenceWeight">Preference Weight: <span id="preferenceWeightValue">0.3</span></label>
+            <input type="range" id="preferenceWeight" min="0" max="1" step="0.1" value="0.3">
+        </div>
+
+        <button id="runMatch" class="button primary">Run Matching</button>
+
+        <div id="results" class="result-container">
+            <h2>Matching Results</h2>
+            <pre><code id="resultOutput"></code></pre>
+        </div>
+    </main>
+
+    <script>
+        document.getElementById('gradeWeight').addEventListener('input', function(e) {
+            document.getElementById('gradeWeightValue').textContent = e.target.value;
+        });
+
+        document.getElementById('preferenceWeight').addEventListener('input', function(e) {
+            document.getElementById('preferenceWeightValue').textContent = e.target.value;
+        });
+
+        document.getElementById('runMatch').addEventListener('click', function() {
+            const results = document.getElementById('results');
+            const output = document.getElementById('resultOutput');
+            
+            // Simulate matching process
+            const pairs = [
+                ["student1@example.com", "student2@example.com", "0.92", "Grade difference: 3"],
+                ["student3@example.com", "student4@example.com", "0.95", "Grade difference: 2"]
+            ];
+            
+            let resultText = "Matched Pairs:\n\n";
+            pairs.forEach(pair => {
+                resultText += `${pair[0]} ↔️ ${pair[1]}\n`;
+                resultText += `Match Quality: ${pair[2]}\n`;
+                resultText += `${pair[3]}\n\n`;
+            });
+            
+            output.textContent = resultText;
+            results.style.display = 'block';
+        });
+    </script>
+</body>
+</html>
