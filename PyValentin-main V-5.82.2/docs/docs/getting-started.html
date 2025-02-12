@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Getting Started - PyValentin</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+    <nav>
+        <div class="nav-wrapper">
+            <h1><a href="../">PyValentin</a></h1>
+        </div>
+    </nav>
+
+    <main>
+        <h1>Getting Started with PyValentin</h1>
+        
+        <h2>Installation</h2>
+        <pre><code>pip install pyvalentin</code></pre>
+
+        <h2>Basic Usage</h2>
+        <p>Here's a simple example of how to use PyValentin:</p>
+        <pre><code>from pyvalentin import MatchMaker
+
+matcher = MatchMaker()
+matcher.load_data("your_data.csv")
+matches = matcher.create_matches()</code></pre>
+
+        <h2>Configuration</h2>
+        <p>PyValentin can be configured using a JSON file. Here's a basic example:</p>
+        <pre><code>{
+    "matching": {
+        "algorithm": "hungarian",
+        "weights": {
+            "grade": 0.7,
+            "preferences": 0.3
+        }
+    }
+}</code></pre>
+    </main>
+</body>
+</html>

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Demo - PyValentin</title>
+    <link rel="stylesheet" href="/PyValentin/css/style.css">
+</head>
+<body>
+    <header>
+        <nav>
+            <div class="nav-wrapper">
+                <div class="logo">
+                    <h1>PyValentin</h1>
+                    <span class="version">v5.82.2</span>
+                </div>
+                <div class="nav-links">
+                    <a href="/PyValentin/#features">Features</a>
+                    <a href="/PyValentin/docs/">Documentation</a>
+                    <a href="/PyValentin/interactive.html" class="active">Interactive Demo</a>
+                    <a href="https://github.com/NagusameCS/PyValentin" class="github-link">GitHub</a>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <main class="demo-container">
+        <h1>Interactive Demo</h1>
+        <p>Try PyValentin's matching algorithms with sample data or your own input.</p>
+
+        <div class="virtualization-env">
+            <div class="input-group">
+                <label for="sampleData">Input Data (CSV format)</label>
+                <textarea id="sampleData" rows="8">Email,Gender,Preference,Grade
+student1@example.com,Male,Female,85
+student2@example.com,Female,Male,88
+student3@example.com,Male,Female,92
+student4@example.com,Female,Male,90</textarea>
+            </div>
+
+            <div class="slider-container">
+                <label for="gradeWeight">Grade Weight: <span id="gradeWeightValue">0.7</span></label>
+                <input type="range" id="gradeWeight" min="0" max="1" step="0.1" value="0.7">
+            </div>
+
+            <div class="slider-container">
+                <label for="preferenceWeight">Preference Weight: <span id="preferenceWeightValue">0.3</span></label>
+                <input type="range" id="preferenceWeight" min="0" max="1" step="0.1" value="0.3">
+            </div>
+
+            <button id="runMatch" class="button primary">Run Matching</button>
+
+            <div id="results" class="result-container hidden">
+                <div class="status">
+                    <span id="statusIndicator" class="status-indicator"></span>
+                    <span id="statusText">Ready</span>
+                </div>
+                <pre><code id="resultOutput"></code></pre>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        document.getElementById('gradeWeight').addEventListener('input', function(e) {
+            document.getElementById('gradeWeightValue').textContent = e.target.value;
+        });
+
+        document.getElementById('preferenceWeight').addEventListener('input', function(e) {
+            document.getElementById('preferenceWeightValue').textContent = e.target.value;
+        });
+
+        document.getElementById('runMatch').addEventListener('click', function() {
+            const results = document.getElementById('results');
+            const output = document.getElementById('resultOutput');
+            const statusIndicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+            
+            results.classList.remove('hidden');
+            statusIndicator.className = 'status-indicator status-running';
+            statusText.textContent = 'Processing...';
+            
+            setTimeout(() => {
+                const pairs = simulateMatching();
+                displayResults(pairs);
+                statusIndicator.className = 'status-indicator status-complete';
+                statusText.textContent = 'Complete';
+            }, 1500);
+        });
+
+        function simulateMatching() {
+            const gradeWeight = parseFloat(document.getElementById('gradeWeight').value);
+            const preferenceWeight = parseFloat(document.getElementById('preferenceWeight').value);
+            
+            return [
+                {
+                    pair: ["student1@example.com", "student2@example.com"],
+                    quality: 0.92,
+                    gradeDiff: 3,
+                    compatibility: 0.95
+                },
+                {
+                    pair: ["student3@example.com", "student4@example.com"],
+                    quality: 0.95,
+                    gradeDiff: 2,
+                    compatibility: 0.98
+                }
+            ];
+        }
+
+        function displayResults(pairs) {
+            let resultText = "Matched Pairs:\n\n";
+            pairs.forEach(pair => {
+                resultText += `${pair.pair[0]} ↔️ ${pair.pair[1]}\n`;
+                resultText += `Match Quality: ${pair.quality}\n`;
+                resultText += `Grade Difference: ${pair.gradeDiff}\n`;
+                resultText += `Compatibility Score: ${pair.compatibility}\n\n`;
+            });
+            
+            document.getElementById('resultOutput').textContent = resultText;
+        }
+    </script>
+</body>
+</html>
