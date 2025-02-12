@@ -25,10 +25,14 @@ from core.matching import MatchMaker
 from utils.file_handlers import validate_csv_data, process_files
 from utils.config import setup_styles, IS_BUNDLED
 
+import numpy as np
+from scipy.optimize import linear_sum_assignment
+from typing import Dict, Tuple
+
 # Detect if running as bundled application
 IS_BUNDLED = getattr(sys, 'frozen', False)
 
-# Only import tkinterdnd2 if not bundled
+# Only import tkinterdnd2 if not IS_BUNDLED
 if not IS_BUNDLED:
     from tkinterdnd2 import DND_FILES, TkinterDnD
 
@@ -43,14 +47,14 @@ def install_dependencies():
 def purge_genR_folder():
     """Purge and recreate the genR folder in core directory"""
     output_dir = os.path.join(os.path.dirname(__file__), "core", "genR")
-    if os.path.exists(output_dir):
+    if (os.path.exists(output_dir)):
         shutil.rmtree(output_dir)
     os.makedirs(output_dir)
 
 def check_inputs():
     """Check if all required files are selected"""
-    files_selected = all(entry.get().strip() for entry in [csv_entry, config_entry, filter_entry])
-    files_exist = all(os.path.exists(entry.get()) for entry in [csv_entry, config_entry, filter_entry] if entry.get())
+    files_selected = all(entry.get().strip() for entry in [csv_entry, config_entry, filter_entry, grade_entry])
+    files_exist = all(os.path.exists(entry.get()) for entry in [csv_entry, config_entry, filter_entry, grade_entry] if entry.get())
     
     if files_selected and files_exist:
         status_label.config(text="Ready to process", foreground='#00ff00')
@@ -90,6 +94,18 @@ def select_filter(event=None):
         filter_entry.delete(0, tk.END)
         filter_entry.insert(0, file_path)
         status_label.config(text="Filter file selected", foreground='#d4d4d4')
+    check_inputs()
+
+def select_grade_csv(event=None):
+    """Handler for grade CSV file selection"""
+    if event:
+        file_path = event.data.strip('{}')
+    else:
+        file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
+    if file_path:
+        grade_entry.delete(0, tk.END)
+        grade_entry.insert(0, file_path)
+        status_label.config(text="Grade CSV file selected", foreground='#d4d4d4')
     check_inputs()
 
 def check_gender_preference_match(person1_data, person2_data):
@@ -415,31 +431,278 @@ def create_pairs(similarity_data, quality_weight=0.5):
     print(f"\nCreated {len(pairs)} valid pairs")
     return pairs
 
-def create_optimal_pairs(filtered_similarity_file, csv_file, quality_weight=0.5):
-    """Create optimal pairs ensuring mutual compatibility"""
-    print("Creating optimal pairs...")
+def create_cost_matrix(similarity_data):
+    """Create a cost matrix for the Hungarian algorithm"""
+    emails = list(set(entry[0] for entry in similarity_data))
+    n = len(emails)
+    email_to_idx = {email: i for i, email in enumerate(emails)}
+    
+    # Initialize with high cost (low similarity)
+    cost_matrix = np.full((n, n), 1000.0)
+    
+    for entry in similarity_data:
+        email = entry[0]
+        matches = [m for m in entry[1:] if m != "No matches found"]
+        i = email_to_idx[email]
+        
+        for idx, match in enumerate(matches):
+            if match in email_to_idx:
+                j = email_to_idx[match]
+                # Convert similarity to cost (higher similarity = lower cost)
+                cost = 1.0 - (1.0 - idx/len(matches))
+                cost_matrix[i][j] = cost
+    
+    return cost_matrix, emails
+
+def create_hungarian_pairs(similarity_data, quality_weight=0.5):
+    """Create optimal pairs using the Hungarian algorithm"""
+    print("\nStarting Hungarian matching process...")
+    
+    # Create a set of all unique emails
+    all_emails = set()
+    for entry in similarity_data:
+        all_emails.add(entry[0])
+        all_emails.update(m for m in entry[1:] if m != "No matches found")
+    
+    emails = sorted(list(all_emails))
+    n = len(emails)
+    email_to_idx = {email: i for i, email in enumerate(emails)}
+    
+    # Initialize cost matrix with high costs
+    cost_matrix = np.full((n, n), 1000.0)
+    
+    # Fill in costs based on mutual compatibility
+    for entry in similarity_data:
+        email1 = entry[0]
+        matches = [m for m in entry[1:] if m != "No matches found"]
+        i = email_to_idx[email1]
+        
+        for idx, email2 in enumerate(matches):
+            j = email_to_idx[email2]
+            # Check if match is mutual
+            is_mutual = any(row[0] == email2 and email1 in row[1:] for row in similarity_data)
+            if is_mutual:
+                # Convert position to cost (earlier positions = lower cost)
+                cost = idx / len(matches)
+                cost_matrix[i][j] = cost
+                # Make cost symmetric
+                cost_matrix[j][i] = cost
+    
+    # Run Hungarian algorithm
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+    
+    # Create pairs, ensuring each person appears only once
+    used_emails = set()
+    pairs = []
+    
+    for i, j in zip(row_ind, col_ind):
+        email1, email2 = emails[i], emails[j]
+        if (email1 not in used_emails and 
+            email2 not in used_emails and 
+            cost_matrix[i][j] < 999.0):
+            
+            quality = 1.0 - cost_matrix[i][j]
+            pairs.append([email1, email2, quality])
+            used_emails.add(email1)
+            used_emails.add(email2)
+    
+    print(f"Created {len(pairs)} unique pairs using Hungarian algorithm")
+    # Verify no duplicates
+    all_matched = set()
+    for pair in pairs:
+        all_matched.update(pair[:2])
+    assert len(all_matched) == 2 * len(pairs), "Duplicate matches detected"
+    
+    return pairs
+
+RECOMMENDED_GRADE_WEIGHT = 0.7
+GRADE_PENALTIES = {
+    0: 0.0,    # Same grade
+    1: 0.3,    # One grade difference
+    2: 0.7,    # Two grades difference
+    3: 0.9,    # Three+ grades difference
+}
+
+def create_grade_slider(parent):
+    """Create slider for grade weight"""
+    frame = tk.Frame(parent, bg='#1e1e1e')
+    frame.pack(fill='x', pady=5)
+    
+    label = ttk.Label(frame, text="Grade Weight:", background='#1e1e1e', foreground='#d4d4d4')
+    label.pack(side='left', padx=5)
+    
+    slider = ttk.Scale(frame, from_=0.0, to=1.0, orient='horizontal')
+    slider.set(RECOMMENDED_GRADE_WEIGHT)
+    slider.pack(side='right', fill='x', expand=True, padx=5)
+    
+    return slider
+
+def load_grade_data(grade_csv: str) -> Dict[str, int]:
+    """Load grade information from CSV"""
+    grade_map = {}
+    with open(grade_csv, 'r', encoding='utf-8-sig') as f:
+        reader = csv.reader(f)
+        next(reader)  # Skip header
+        for row in reader:
+            if len(row) >= 4:
+                email = row[2].strip()
+                grade = int(row[3].strip())
+                grade_map[email] = grade
+    return grade_map
+
+def calculate_grade_penalty(grade1: int, grade2: int) -> float:
+    """Calculate penalty for grade difference"""
+    diff = abs(grade1 - grade2)
+    if diff >= 3:
+        return GRADE_PENALTIES[3]
+    return GRADE_PENALTIES[diff]
+
+def calculate_grade_difference(grade1: int, grade2: int) -> str:
+    """Calculate and format the grade difference between two students"""
+    if grade1 is None or grade2 is None:
+        return "N/A"
+    return str(abs(grade1 - grade2))
+
+def create_grade_sensitive_pairs(similarity_data, grade_data: Dict[str, int], grade_weight: float = RECOMMENDED_GRADE_WEIGHT):
+    """Create pairs considering both compatibility and grade"""
+    print("\nStarting grade-sensitive Hungarian matching...")
+    
+    # Create cost matrix as before
+    emails = sorted(list(set(entry[0] for entry in similarity_data)))
+    n = len(emails)
+    email_to_idx = {email: i for i, email in enumerate(emails)}
+    
+    # Initialize cost matrix
+    cost_matrix = np.full((n, n), 1000.0)
+    
+    # Fill cost matrix with combined costs
+    for entry in similarity_data:
+        email1 = entry[0]
+        matches = [m for m in entry[1:] if m != "No matches found"]
+        i = email_to_idx[email1]
+        
+        for idx, email2 in enumerate(matches):
+            j = email_to_idx[email2]
+            
+            # Base compatibility cost
+            base_cost = idx / len(matches)
+            
+            # Add grade penalty if both emails have grade data
+            grade_cost = 0.0
+            if email1 in grade_data and email2 in grade_data:
+                grade_cost = calculate_grade_penalty(grade_data[email1], grade_data[email2])
+            
+            # Combine costs with weight
+            combined_cost = (1 - grade_weight) * base_cost + grade_weight * grade_cost
+            cost_matrix[i][j] = combined_cost
+            cost_matrix[j][i] = combined_cost
+    
+    # Run Hungarian algorithm
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+    
+    # Create pairs
+    used_emails = set()
+    pairs = []
+    
+    for i, j in zip(row_ind, col_ind):
+        email1, email2 = emails[i], emails[j]
+        if (email1 not in used_emails and 
+            email2 not in used_emails and 
+            cost_matrix[i][j] < 999.0):
+            
+            quality = 1.0 - cost_matrix[i][j]
+            grade1 = grade_data.get(email1)
+            grade2 = grade_data.get(email2)
+            grade_diff = calculate_grade_difference(grade1, grade2)
+            grade_info = f" (grades: {grade1}, {grade2})"
+            
+            pairs.append([email1, email2, quality, grade_info, grade_diff])
+            used_emails.add(email1)
+            used_emails.add(email2)
+    
+    return pairs
+
+def create_optimal_pairs(filtered_similarity_file, csv_file, grade_csv, quality_weight=0.5, grade_weight=RECOMMENDED_GRADE_WEIGHT):
+    """Create optimal pairs using both algorithms with grade consideration"""
+    print("Creating optimal pairs using multiple algorithms...")
     
     with open(filtered_similarity_file, 'r') as f:
         similarity_data = [line.strip().split(',') for line in f]
     
     print(f"Read {len(similarity_data)} entries from similarity file")
     
-    pairs = create_pairs(similarity_data, quality_weight)
+    # Generate pairs using both methods
+    greedy_pairs = create_pairs(similarity_data, quality_weight)
+    hungarian_pairs = create_hungarian_pairs(similarity_data, quality_weight)
     
-    output_file = os.path.join(os.path.dirname(__file__), "core", "genR", "optimal_pairs.csv")
-    with open(output_file, 'w', newline='') as f:
+    # Load grade data
+    grade_data = load_grade_data(grade_csv)
+    
+    # Create grade-sensitive pairs
+    grade_greedy_pairs = create_pairs(similarity_data, quality_weight)  # You could modify this too
+    grade_hungarian_pairs = create_grade_sensitive_pairs(similarity_data, grade_data, grade_weight)
+    
+    # Modify the regular pairs to include grade differences
+    enhanced_greedy_pairs = []
+    enhanced_hungarian_pairs = []
+    
+    for pair in greedy_pairs:
+        email1, email2, quality = pair
+        grade1 = grade_data.get(email1)
+        grade2 = grade_data.get(email2)
+        grade_diff = calculate_grade_difference(grade1, grade2)
+        enhanced_greedy_pairs.append([email1, email2, quality, grade_diff])
+    
+    for pair in hungarian_pairs:
+        email1, email2, quality = pair
+        grade1 = grade_data.get(email1)
+        grade2 = grade_data.get(email2)
+        grade_diff = calculate_grade_difference(grade1, grade2)
+        enhanced_hungarian_pairs.append([email1, email2, quality, grade_diff])
+    
+    # Ensure output directory exists
+    output_dir = os.path.join(os.path.dirname(__file__), "core", "genR")
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Save regular pairs with grade differences
+    greedy_file = os.path.join(output_dir, "optimal_pairs_greed.csv")
+    with open(greedy_file, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(["Person 1", "Person 2", "Match Quality"])
-        for pair in pairs:
-            writer.writerow(pair)
+        writer.writerow(["Person 1", "Person 2", "Match Quality", "Grade Difference"])
+        writer.writerows(enhanced_greedy_pairs)
     
-    unpaired = find_unpaired_participants(output_file, csv_file)
-    save_unpaired_info(unpaired, csv_file)
+    hungarian_file = os.path.join(output_dir, "optimal_pairs_gluttony.csv")
+    with open(hungarian_file, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Person 1", "Person 2", "Match Quality", "Grade Difference"])
+        writer.writerows(enhanced_hungarian_pairs)
     
-    return pairs
+    # Save grade-sensitive pairs
+    for suffix, pairs in [("sGreed", grade_greedy_pairs), ("sGluttony", grade_hungarian_pairs)]:
+        output_file = os.path.join(output_dir, f"optimal_pairs_{suffix}.csv")
+        with open(output_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(["Person 1", "Person 2", "Match Quality", "Grade Info", "Grade Difference"])
+            writer.writerows(pairs)
+        
+        # Create enriched versions
+        enrich_optimal_pairs(output_file, csv_file, grade_data, suffix=suffix, include_grades=True)
+    
+    # Find and save unpaired participants for both methods
+    unpaired_greedy = find_unpaired_participants(greedy_file, csv_file)
+    unpaired_hungarian = find_unpaired_participants(hungarian_file, csv_file)
+    
+    save_unpaired_info(unpaired_greedy, csv_file, suffix="_greed")
+    save_unpaired_info(unpaired_hungarian, csv_file, suffix="_gluttony")
+    
+    # Generate enriched versions for both
+    enrich_optimal_pairs(greedy_file, csv_file, grade_data, suffix="_greed")
+    enrich_optimal_pairs(hungarian_file, csv_file, grade_data, suffix="_gluttony")
+    
+    return greedy_pairs, hungarian_pairs
 
-def enrich_optimal_pairs(optimal_pairs_file, original_csv_file):
-    """Add gender and preference information to optimal pairs"""
+def enrich_optimal_pairs(optimal_pairs_file, original_csv_file, grade_data=None, suffix="", include_grades=False):
+    """Add gender, preference, and grade difference information to optimal pairs"""
     with open(original_csv_file, 'r', encoding='utf-8-sig') as f:
         reader = csv.reader(f)
         headers = next(reader)
@@ -461,22 +724,31 @@ def enrich_optimal_pairs(optimal_pairs_file, original_csv_file):
         reader = csv.reader(f)
         header = next(reader)
         for row in reader:
-            email1, email2, quality = row
+            email1, email2, quality = row[:3]
+            grade_info = row[3] if include_grades and len(row) > 3 else ""
+            grade_diff = row[4] if len(row) > 4 else (
+                calculate_grade_difference(
+                    grade_data.get(email1), grade_data.get(email2)
+                ) if grade_data else "N/A"
+            )
+            
             gender1, pref1 = email_data.get(email1, ('Unknown', 'Unknown'))
             gender2, pref2 = email_data.get(email2, ('Unknown', 'Unknown'))
+            
             pairs_with_info.append([
                 email1, f"(is: {gender1}, wants: {pref1})",
                 email2, f"(is: {gender2}, wants: {pref2})",
-                quality
+                quality, grade_info, grade_diff
             ])
 
-    enriched_file = os.path.join(os.path.dirname(__file__), "core", "genR", "optimal_pairs_with_info.csv")
+    enriched_file = os.path.join(os.path.dirname(__file__), "core", "genR", f"optimal_pairs_with_info{suffix}.csv")
     with open(enriched_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(["Person 1", "Gender & Preference 1", "Person 2", "Gender & Preference 2", "Match Quality"])
+        writer.writerow(["Person 1", "Gender & Preference 1", "Person 2", "Gender & Preference 2", 
+                        "Match Quality", "Grade Info", "Grade Difference"])
         writer.writerows(pairs_with_info)
     
-    print("Created enriched optimal pairs file with gender and preference information")
+    print("Created enriched optimal pairs file with gender, preference, and grade information")
 
 def find_unpaired_participants(optimal_pairs_file, csv_file):
     """Find participants who weren't matched"""
@@ -500,7 +772,7 @@ def find_unpaired_participants(optimal_pairs_file, csv_file):
     print(f"Found {len(unpaired)} unpaired participants")
     return unpaired
 
-def save_unpaired_info(unpaired_participants, csv_file):
+def save_unpaired_info(unpaired_participants, csv_file, suffix=""):
     """Create CSV with unpaired participants and their preferences"""
     email_to_data = {}
     with open(csv_file, 'r', encoding='utf-8-sig') as f:
@@ -517,7 +789,7 @@ def save_unpaired_info(unpaired_participants, csv_file):
                 preference = row[pref_idx].strip()
                 email_to_data[email] = (gender, preference)
     
-    output_file = os.path.join(os.path.dirname(__file__), "core", "genR", "unpaired_entries.csv")
+    output_file = os.path.join(os.path.dirname(__file__), "core", "genR", f"unpaired_entries{suffix}.csv")
     with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(["Email", "Gender & Preference"])
@@ -525,13 +797,17 @@ def save_unpaired_info(unpaired_participants, csv_file):
             gender, pref = email_to_data.get(email, ('Unknown', 'Unknown'))
             writer.writerow([email, f"(is: {gender}, wants: {pref})"])
 
+from core.analysis import MatchAnalysis
+
 def process_files():
     """Modified process_files to include enriched pairs"""
     csv_file = csv_entry.get()
     config_file = config_entry.get()
     filter_file = filter_entry.get()
+    grade_csv = grade_entry.get()
+    grade_weight = grade_weight_slider.get()
     
-    if not all([csv_file, config_file, filter_file]):
+    if not all([csv_file, config_file, filter_file, grade_csv]):
         status_label.config(text="All files must be selected", foreground='#ff0000')
         return
 
@@ -539,6 +815,10 @@ def process_files():
     root.update()
     
     try:
+        # Ensure the genR directory exists
+        output_dir = os.path.join(os.path.dirname(__file__), "core", "genR")
+        os.makedirs(output_dir, exist_ok=True)
+        
         status_label.config(text="Stage 1/5: Initializing and processing CSV...", foreground='#d4d4d4')
         purge_genR_folder()
         output_file = os.path.join(os.path.dirname(__file__), "core", "genR", "modified_csv.csv")
@@ -580,13 +860,13 @@ def process_files():
         status_label.config(text="Stage 5/5: Creating optimal pairs...", foreground='#d4d4d4')
         quality_weight = quality_slider.get()
         filtered_similarity_file = os.path.join(os.path.dirname(__file__), "core", "genR", "filtered_similarity_list.csv")
-        create_optimal_pairs(filtered_similarity_file, csv_file, quality_weight)
+        create_optimal_pairs(filtered_similarity_file, csv_file, grade_csv, quality_weight=quality_weight, grade_weight=grade_weight)
         progress['value'] = 100
         root.update()
         
-        status_label.config(text="Final Stage: Adding participant information...", foreground='#d4d4d4')
-        optimal_pairs_file = os.path.join(os.path.dirname(__file__), "core", "genR", "optimal_pairs.csv")
-        enrich_optimal_pairs(optimal_pairs_file, csv_file)
+        status_label.config(text="Final Stage: Analyzing results...", foreground='#d4d4d4')
+        analyzer = MatchAnalysis(output_dir)
+        analyzer.analyze_all_algorithms()
         
         status_label.config(text="Processing completed! Check core/genR for all Data", foreground='#00ff00')
         
@@ -594,13 +874,27 @@ def process_files():
         status_label.config(text=f"Error: {str(e)}", foreground='#ff0000')
         progress['value'] = 0
 
+DEFAULT_PATHS_FILE = os.path.join(os.path.dirname(__file__), "defaults.json")
+
+def load_default_paths():
+    """Load default paths from configuration file"""
+    try:
+        with open(DEFAULT_PATHS_FILE, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Could not load default paths: {e}")
+        return {}
+
 def create_ui():
     """Create the main application UI"""
-    global csv_entry, config_entry, filter_entry, quality_slider, progress, status_label, root, process_button
+    global csv_entry, config_entry, filter_entry, grade_entry, quality_slider, grade_weight_slider, progress, status_label, root, process_button
 
+    # Load default paths
+    default_paths = load_default_paths()
+    
     root = TkinterDnD.Tk() if not IS_BUNDLED else tk.Tk()
     root.title("PyValentin")
-    root.geometry("600x550")
+    root.geometry("600x700")
     root.configure(bg='#1e1e1e')
 
     setup_styles()
@@ -614,11 +908,20 @@ def create_ui():
     csv_entry = create_file_input(input_frame, "CSV File", "csv_entry", select_csv)
     config_entry = create_file_input(input_frame, "Config File", "config_entry", select_config)
     filter_entry = create_file_input(input_frame, "Filter File", "filter_entry", select_filter)
+    grade_entry = create_file_input(input_frame, "Grade CSV", "grade_entry", select_grade_csv)
+    
+    # Set default paths if available
+    if 'config_file' in default_paths and os.path.exists(default_paths['config_file']):
+        config_entry.insert(0, default_paths['config_file'])
+    
+    if 'filter_file' in default_paths and os.path.exists(default_paths['filter_file']):
+        filter_entry.insert(0, default_paths['filter_file'])
     
     control_frame = tk.Frame(main_frame, bg='#1e1e1e')
     control_frame.pack(fill='x', pady=10)
     
     quality_slider = create_quality_slider(control_frame)
+    grade_weight_slider = create_grade_slider(control_frame)
     progress = ttk.Progressbar(control_frame, orient='horizontal', length=300, mode='determinate')
     progress.pack(fill='x', pady=5)
     
@@ -632,7 +935,7 @@ def create_ui():
     root.bind('<Control-c>', select_config)
     root.bind('<Control-f>', select_filter)
 
-    for entry in [csv_entry, config_entry, filter_entry]:
+    for entry in [csv_entry, config_entry, filter_entry, grade_entry]:
             entry.drop_target_register(DND_FILES)
             entry.dnd_bind('<<Drop>>', lambda e, entry=entry: drop(e, entry))
 

@@ -41,31 +41,20 @@ def create_quality_slider(parent):
     
     return slider
 
-def create_action_buttons(parent, process_handler):
-    """Create a frame with action buttons"""
-    frame = tk.Frame(parent, bg='#1e1e1e', highlightthickness=0)
-    frame.pack(fill='x', pady=10)
+def create_action_buttons(parent, process_callback):
+    """Create action buttons for the UI"""
+    button_frame = tk.Frame(parent, bg='#1e1e1e')
+    button_frame.pack(fill='x', pady=10)
     
-    # Create inner frame for button grid
-    button_frame = tk.Frame(frame, bg='#1e1e1e')
-    button_frame.pack()
+    process_button = ttk.Button(
+        button_frame,
+        text="Process Files",
+        command=process_callback,
+        state='disabled'
+    )
+    process_button.pack(fill='x', pady=5)
     
-    # Create buttons in a 2x2 grid
-    buttons = [
-        ("Open GenR", lambda: open_folder("core/genR")),
-        ("Open OP", lambda: open_file("core/genR/optimal_pairs_with_info.csv")),
-        ("Open Unp", lambda: open_file("core/genR/unpaired_entries.csv")),
-        ("Process", process_handler)
-    ]
-    
-    for i, (text, command) in enumerate(buttons):
-        row = i // 2
-        col = i % 2
-        btn = ttk.Button(button_frame, text=text, command=command, width=15)
-        btn.grid(row=row, column=col, padx=5, pady=5)
-        
-        if text == "Process":
-            return btn  # Return process button for state management
+    return process_button
 
 def open_folder(path):
     """Open folder in file explorer"""
