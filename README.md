@@ -1,7 +1,7 @@
 # PyValentin - Advanced Matchmaking System
 
 ## Overview
-PyValentin is a sophisticated matchmaking system that uses multi-dimensional distance calculations and compatibility filtering to create optimal pairs from survey responses. The system processes raw survey data through several stages, applying mathematical models to quantify compatibility.
+PyValentin is a sophisticated matchmaking system that uses multi-dimensional distance calculations, compatibility filtering, and grade-based matching to create optimal pairs from survey responses. The system processes raw survey data through several stages, applying mathematical models to quantify compatibility.
 
 ## Table of Contents
 1. [Features](#features)
@@ -20,34 +20,48 @@ PyValentin is a sophisticated matchmaking system that uses multi-dimensional dis
 
 ## Features
 - Multi-dimensional compatibility analysis
+- Grade-based matching with configurable weights
 - Customizable gender/preference filtering
 - Quality vs. quantity optimization
+- Grade difference consideration
+- Multiple matching algorithms (Greedy and Hungarian)
 - Interactive GUI with progress tracking
 - Drag-and-drop file support
 - Comprehensive results output
+- Automatic dependency management
 
 ## Setup and Installation
 
-### You Only Need To Download the .ZIP
+### Prerequisites
+1. Python 3.8+
+2. Required packages (automatically installed):
+   ```bash
+   tkinterdnd2
+   numpy
+   scipy
+   ```
 
-1. Ensure Python 3.8+ is installed
-2. Install dependencies:
-    ```bash
-    pip install tkinterdnd2 numpy
-    ```
-3. Place your survey data in CSV format
-4. Configure your Config.json and Filter.json files
+### Installation
+1. Download the latest .ZIP release
+2. Run `python core/update_dependencies.py` to check and install dependencies
+3. Configure your settings files:
+   - Config.json (response mappings)
+   - Filter.json (preference rules)
+   - defaults.json (default file paths)
 
 ## Usage
 1. Launch the application:
-    ```bash
-    python main.py
-    ```
-2. Select your input files:
-    - Survey responses (CSV)
-    - Configuration file (JSON)
-    - Filter rules (JSON)
-3. Adjust the quality-quantity slider
+   ```bash
+   python main.py
+   ```
+2. Select required files:
+   - Survey responses (CSV)
+   - Configuration file (JSON)
+   - Filter rules (JSON)
+   - Grade data (CSV)
+3. Adjust sliders:
+   - Quality-quantity balance
+   - Grade weight importance
 4. Click "Process Files"
 5. Check the genR folder for results
 
@@ -108,6 +122,26 @@ For remaining unmatched users:
 2. Find maximal matching using a greedy algorithm
 3. Optimize for global satisfaction using local improvements
 
+### 7. Grade-Based Optimization
+The system incorporates grade differences into the matching process:
+
+```
+final_score = (1 - grade_weight) * compatibility_score + grade_weight * (1 - grade_penalty)
+
+where:
+grade_penalty = {
+    0: 0.0,    # Same grade
+    1: 0.3,    # One grade difference
+    2: 0.7,    # Two grades difference
+    3: 0.9     # Three+ grades difference
+}
+```
+
+The grade_weight slider (0.0-1.0) determines the importance of grade matching:
+- 0.0: Ignore grades entirely
+- 0.7: Recommended balance (default)
+- 1.0: Prioritize grade matching above all else
+
 ## File Structure
 ```
 PyValentin/
@@ -167,8 +201,12 @@ Timestamp,Email,Gender,Attracted To,Q1,Q2,...
 - processed_distances.csv: Distance matrix
 - similarity_list.csv: Similarity scores
 - filtered_similarity_list.csv: Filtered matches
-- optimal_pairs.csv: Final pairings
-- unpaired_entries.csv: Unmatched users
+- optimal_pairs_greed.csv: Greedy algorithm pairs
+- optimal_pairs_gluttony.csv: Hungarian algorithm pairs
+- optimal_pairs_with_info_greed.csv: Detailed greedy matches
+- optimal_pairs_with_info_gluttony.csv: Detailed Hungarian matches
+- unpaired_entries_greed.csv: Unmatched users (greedy)
+- unpaired_entries_gluttony.csv: Unmatched users (Hungarian)
 
 ## Customization Guide
 
