@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyValentin Documentation</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <nav>
+        <div class="nav-wrapper">
+            <h1>PyValentin</h1>
+            <div class="tabs">
+                <button class="tab-button active" onclick="openTab('home')">Home</button>
+                <button class="tab-button" onclick="openTab('docs')">Documentation</button>
+                <button class="tab-button" onclick="openTab('download')">Download</button>
+                <button class="tab-button" onclick="openTab('about')">About</button>
+            </div>
+        </div>
+    </nav>
+
+    <main>
+        <div id="home" class="tab-content active">
+            <h2>Welcome to PyValentin</h2>
+            <p>PyValentin is an advanced matching system designed to create optimal pairings based on multiple criteria including preferences, grades, and compatibility scores.</p>
+            <div class="features">
+                <h3>Key Features</h3>
+                <ul>
+                    <li>Multiple matching algorithms</li>
+                    <li>Grade-sensitive pairing</li>
+                    <li>Preference filtering</li>
+                    <li>Detailed analysis output</li>
+                </ul>
+            </div>
+        </div>
+
+        <div id="docs" class="tab-content">
+            <h2>Documentation</h2>
+            <ul class="doc-links">
+                <li><a href="docs/getting-started.html">Getting Started Guide</a></li>
+                <li><a href="docs/configuration.html">Configuration Reference</a></li>
+                <li><a href="docs/api.html">API Documentation</a></li>
+                <li><a href="docs/examples.html">Examples</a></li>
+            </ul>
+        </div>
+
+        <div id="download" class="tab-content">
+            <h2>Download PyValentin</h2>
+            <div class="download-options">
+                <a href="https://github.com/yourusername/PyValentin/releases" class="download-button">Download Latest Release</a>
+                <p>Or install via pip:</p>
+                <code>pip install pyvalentin</code>
+            </div>
+        </div>
+
+        <div id="about" class="tab-content">
+            <h2>About PyValentin</h2>
+            <p>PyValentin is an open-source project dedicated to creating optimal matches for various applications. Whether you're matching students for projects, creating mentorship pairs, or organizing events, PyValentin provides powerful algorithms to ensure the best possible matches.</p>
+        </div>
+    </main>
+
+    <script src="js/script.js"></script>
+</body>
+</html>
