@@ -627,6 +627,18 @@ def create_optimal_pairs(filtered_similarity_file, csv_file, grade_csv, quality_
     """Create optimal pairs using both algorithms with grade consideration"""
     print("Creating optimal pairs using multiple algorithms...")
     
+    # Create algorithm-specific output directories
+    algorithm_dirs = {
+        'greed': os.path.join(os.path.dirname(__file__), "core", "genR", "greed"),
+        'gluttony': os.path.join(os.path.dirname(__file__), "core", "genR", "gluttony"),
+        'sgreed': os.path.join(os.path.dirname(__file__), "core", "genR", "sgreed"),
+        'sgluttony': os.path.join(os.path.dirname(__file__), "core", "genR", "sgluttony")
+    }
+    
+    # Create directories if they don't exist
+    for dir_path in algorithm_dirs.values():
+        os.makedirs(dir_path, exist_ok=True)
+    
     with open(filtered_similarity_file, 'r') as f:
         similarity_data = [line.strip().split(',') for line in f]
     
@@ -661,26 +673,27 @@ def create_optimal_pairs(filtered_similarity_file, csv_file, grade_csv, quality_
         grade_diff = calculate_grade_difference(grade1, grade2)
         enhanced_hungarian_pairs.append([email1, email2, quality, grade_diff])
     
-    # Ensure output directory exists
-    output_dir = os.path.join(os.path.dirname(__file__), "core", "genR")
-    os.makedirs(output_dir, exist_ok=True)
-    
     # Save regular pairs with grade differences
-    greedy_file = os.path.join(output_dir, "optimal_pairs_greed.csv")
+    greedy_file = os.path.join(algorithm_dirs['greed'], "optimal_pairs.csv")
     with open(greedy_file, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(["Person 1", "Person 2", "Match Quality", "Grade Difference"])
         writer.writerows(enhanced_greedy_pairs)
     
-    hungarian_file = os.path.join(output_dir, "optimal_pairs_gluttony.csv")
+    hungarian_file = os.path.join(algorithm_dirs['gluttony'], "optimal_pairs.csv")
     with open(hungarian_file, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(["Person 1", "Person 2", "Match Quality", "Grade Difference"])
         writer.writerows(enhanced_hungarian_pairs)
     
     # Save grade-sensitive pairs
-    for suffix, pairs in [("sGreed", grade_greedy_pairs), ("sGluttony", grade_hungarian_pairs)]:
-        output_file = os.path.join(output_dir, f"optimal_pairs_{suffix}.csv")
+    grade_file_paths = {
+        'sgreed': os.path.join(algorithm_dirs['sgreed'], "optimal_pairs.csv"),
+        'sgluttony': os.path.join(algorithm_dirs['sgluttony'], "optimal_pairs.csv")
+    }
+    
+    for suffix, pairs in [("sgreed", grade_greedy_pairs), ("sgluttony", grade_hungarian_pairs)]:
+        output_file = grade_file_paths[suffix]
         with open(output_file, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(["Person 1", "Person 2", "Match Quality", "Grade Info", "Grade Difference"])
@@ -689,21 +702,32 @@ def create_optimal_pairs(filtered_similarity_file, csv_file, grade_csv, quality_
         # Create enriched versions
         enrich_optimal_pairs(output_file, csv_file, grade_data, suffix=suffix, include_grades=True)
     
-    # Find and save unpaired participants for both methods
-    unpaired_greedy = find_unpaired_participants(greedy_file, csv_file)
-    unpaired_hungarian = find_unpaired_participants(hungarian_file, csv_file)
+    # Find and save unpaired participants for all algorithms
+    for algo, file_path in [
+        ('greed', greedy_file),
+        ('gluttony', hungarian_file),
+        ('sgreed', grade_file_paths['sgreed']),
+        ('sgluttony', grade_file_paths['sgluttony'])
+    ]:
+        unpaired = find_unpaired_participants(file_path, csv_file)
+        save_unpaired_info(unpaired, csv_file, suffix=f"_{algo}", output_dir=algorithm_dirs[algo])
     
-    save_unpaired_info(unpaired_greedy, csv_file, suffix="_greed")
-    save_unpaired_info(unpaired_hungarian, csv_file, suffix="_gluttony")
-    
-    # Generate enriched versions for both
-    enrich_optimal_pairs(greedy_file, csv_file, grade_data, suffix="_greed")
-    enrich_optimal_pairs(hungarian_file, csv_file, grade_data, suffix="_gluttony")
+    # Generate enriched versions for all algorithms
+    for algo, file_path in [
+        ('greed', greedy_file),
+        ('gluttony', hungarian_file),
+        ('sgreed', grade_file_paths['sgreed']),
+        ('sgluttony', grade_file_paths['sgluttony'])
+    ]:
+        enrich_optimal_pairs(file_path, csv_file, grade_data, suffix="", output_dir=algorithm_dirs[algo])
     
     return greedy_pairs, hungarian_pairs
 
-def enrich_optimal_pairs(optimal_pairs_file, original_csv_file, grade_data=None, suffix="", include_grades=False):
+def enrich_optimal_pairs(optimal_pairs_file, original_csv_file, grade_data=None, suffix="", include_grades=False, output_dir=None):
     """Add gender, preference, and grade difference information to optimal pairs"""
+    if output_dir is None:
+        output_dir = os.path.join(os.path.dirname(__file__), "core", "genR")
+    
     with open(original_csv_file, 'r', encoding='utf-8-sig') as f:
         reader = csv.reader(f)
         headers = next(reader)
@@ -742,14 +766,14 @@ def enrich_optimal_pairs(optimal_pairs_file, original_csv_file, grade_data=None,
                 quality, grade_info, grade_diff
             ])
 
-    enriched_file = os.path.join(os.path.dirname(__file__), "core", "genR", f"optimal_pairs_with_info{suffix}.csv")
+    enriched_file = os.path.join(output_dir, f"optimal_pairs_with_info{suffix}.csv")
     with open(enriched_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(["Person 1", "Gender & Preference 1", "Person 2", "Gender & Preference 2", 
                         "Match Quality", "Grade Info", "Grade Difference"])
         writer.writerows(pairs_with_info)
     
-    print("Created enriched optimal pairs file with gender, preference, and grade information")
+    print(f"Created enriched optimal pairs file in {output_dir}")
 
 def find_unpaired_participants(optimal_pairs_file, csv_file):
     """Find participants who weren't matched"""
@@ -773,8 +797,11 @@ def find_unpaired_participants(optimal_pairs_file, csv_file):
     print(f"Found {len(unpaired)} unpaired participants")
     return unpaired
 
-def save_unpaired_info(unpaired_participants, csv_file, suffix=""):
+def save_unpaired_info(unpaired_participants, csv_file, suffix="", output_dir=None):
     """Create CSV with unpaired participants and their preferences"""
+    if output_dir is None:
+        output_dir = os.path.join(os.path.dirname(__file__), "core", "genR")
+    
     email_to_data = {}
     with open(csv_file, 'r', encoding='utf-8-sig') as f:
         reader = csv.reader(f)
@@ -790,7 +817,7 @@ def save_unpaired_info(unpaired_participants, csv_file, suffix=""):
                 preference = row[pref_idx].strip()
                 email_to_data[email] = (gender, preference)
     
-    output_file = os.path.join(os.path.dirname(__file__), "core", "genR", f"unpaired_entries{suffix}.csv")
+    output_file = os.path.join(output_dir, f"unpaired_entries{suffix}.csv")
     with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(["Email", "Gender & Preference"])
@@ -997,3 +1024,4 @@ def main():
 if __name__ == "__main__":
     install_dependencies()
     main()
+

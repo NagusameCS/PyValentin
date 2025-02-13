@@ -10,15 +10,15 @@ class MatchAnalysis:
     def analyze_all_algorithms(self):
         """Analyze results from all matching algorithms"""
         algorithms = {
-            'Greedy': 'optimal_pairs_greed.csv',
-            'Hungarian': 'optimal_pairs_gluttony.csv',
-            'Grade-Sensitive Greedy': 'optimal_pairs_sGreed.csv',
-            'Grade-Sensitive Hungarian': 'optimal_pairs_sGluttony.csv'
+            'Greedy': ('greed', 'optimal_pairs.csv'),
+            'Hungarian': ('gluttony', 'optimal_pairs.csv'),
+            'Grade-Sensitive Greedy': ('sgreed', 'optimal_pairs.csv'),
+            'Grade-Sensitive Hungarian': ('sgluttony', 'optimal_pairs.csv')
         }
         
         results = {}
-        for algo_name, filename in algorithms.items():
-            filepath = os.path.join(self.genR_path, filename)
+        for algo_name, (subdir, filename) in algorithms.items():
+            filepath = os.path.join(self.genR_path, subdir, filename)
             if os.path.exists(filepath):
                 results[algo_name] = self.analyze_matches(filepath)
         
@@ -73,25 +73,43 @@ class MatchAnalysis:
                 f.write(f"\n{algo_name} Algorithm Results:\n")
                 f.write("-" * 30 + "\n")
                 f.write(f"Total Pairs: {stats['total_pairs']}\n")
-                f.write(f"Average Match Quality: {stats['avg_match_quality']:.2%}\n")
+                
+                # Check for division by zero
+                if stats['total_pairs'] > 0:
+                    f.write(f"Average Match Quality: {stats['avg_match_quality']:.2%}\n")
+                else:
+                    f.write("Average Match Quality: N/A (no pairs)\n")
                 
                 if stats.get('grade_differences'):
                     f.write("\nGrade Distribution:\n")
                     total_graded = stats['same_grade_pairs'] + stats['different_grade_pairs']
+                    
                     if total_graded > 0:
-                        f.write(f"Same Grade: {stats['same_grade_pairs']} ({stats['same_grade_pairs']/total_graded:.1%})\n")
-                        f.write(f"Different Grade: {stats['different_grade_pairs']} ({stats['different_grade_pairs']/total_graded:.1%})\n")
+                        same_grade_pct = (stats['same_grade_pairs']/total_graded * 100) if total_graded > 0 else 0
+                        diff_grade_pct = (stats['different_grade_pairs']/total_graded * 100) if total_graded > 0 else 0
+                        
+                        f.write(f"Same Grade: {stats['same_grade_pairs']} ({same_grade_pct:.1f}%)\n")
+                        f.write(f"Different Grade: {stats['different_grade_pairs']} ({diff_grade_pct:.1f}%)\n")
+                        
                         f.write("\nGrade Differences:\n")
                         for diff, count in sorted(stats['grade_differences'].items()):
-                            f.write(f"{diff} grade(s) apart: {count} pairs ({count/total_graded:.1%})\n")
+                            diff_pct = (count/total_graded * 100) if total_graded > 0 else 0
+                            f.write(f"{diff} grade(s) apart: {count} pairs ({diff_pct:.1f}%)\n")
+                    else:
+                        f.write("No grade comparison data available\n")
                     
                     if stats['missing_grade_info'] > 0:
-                        f.write(f"\nPairs missing grade info: {stats['missing_grade_info']}\n")
+                        missing_pct = (stats['missing_grade_info']/stats['total_pairs'] * 100) if stats['total_pairs'] > 0 else 0
+                        f.write(f"\nPairs missing grade info: {stats['missing_grade_info']} ({missing_pct:.1f}%)\n")
                 
                 f.write("\n" + "="*50 + "\n")
             
             f.write("\nComparative Analysis:\n")
             f.write("-" * 30 + "\n")
-            # Add algorithm comparison
-            best_quality = max(results.items(), key=lambda x: x[1]['avg_match_quality'])
-            f.write(f"Best average match quality: {best_quality[0]} ({best_quality[1]['avg_match_quality']:.2%})\n")
+            
+            # Only compare if there are results
+            if results:
+                best_quality = max(results.items(), key=lambda x: x[1]['avg_match_quality'])
+                f.write(f"Best average match quality: {best_quality[0]} ({best_quality[1]['avg_match_quality']:.2%})\n")
+            else:
+                f.write("No algorithm results available for comparison\n")
