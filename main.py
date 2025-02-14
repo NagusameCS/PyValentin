@@ -30,6 +30,13 @@ from scipy.optimize import linear_sum_assignment
 from typing import Dict, Tuple
 import platform
 
+# Add this import at the top with other imports
+from core.genR.sgluttony.sgluttony_constants import ( # type: ignore
+    MAX_GRADE_DIFFERENCE,
+    GRADE_PENALTY_FACTOR,
+    MIN_MATCH_QUALITY
+)
+
 # Detect if running as bundled application
 IS_BUNDLED = getattr(sys, 'frozen', False)
 
@@ -263,26 +270,20 @@ def validate_csv_data(csv_file):
         return False
 
 def prefilter_by_preferences(similarity_data, csv_file):
-    """Remove incompatible matches using strict preference filtering"""
+    """Remove incompatible matches using more lenient preference filtering"""
     print("\n=== Starting Preference Filtering ===")
     
     gender_prefs = load_gender_preferences(csv_file)
     print(f"Loaded {len(gender_prefs)} participant preferences")
     
     filtered_data = []
-    removal_count = 0
-    match_count = 0
     
     for entry in similarity_data:
         person_email = entry[0]
         person_data = gender_prefs.get(person_email)
         if not person_data:
-            print(f"⚠️  Skipping {person_email} - no preference data")
             continue
             
-        print(f"\n👤 Processing {person_email}")
-        print(f"   Is: {person_data['gender']}, Wants: {person_data['wants']}")
-        
         filtered_entry = [person_email]
         matches = []
         
@@ -294,33 +295,11 @@ def prefilter_by_preferences(similarity_data, csv_file):
             if not match_data:
                 continue
             
-            print(f"\n   Checking {match_email}")
-            print(f"   Is: {match_data['gender']}, Wants: {match_data['wants']}")
+            # More lenient compatibility check
+            compatible = check_compatibility(person_data, match_data)
             
-            # Check compatibility
-            match_wants_person = (
-                match_data["wants"] == "5" or  # Accepts both genders
-                match_data["wants"] == "No Preference" or
-                match_data["wants"] == person_data["gender"]
-            )
-            
-            person_wants_match = (
-                person_data["wants"] == "5" or  # Accepts both genders
-                person_data["wants"] == "No Preference" or
-                person_data["wants"] == match_data["gender"]
-            )
-            
-            if match_wants_person and person_wants_match:
+            if compatible:
                 matches.append(match_email)
-                match_count += 1
-                print(f"   ✅ Compatible match")
-            else:
-                for other_entry in similarity_data:
-                    if other_entry[0] == match_email and person_email in other_entry:
-                        other_entry.remove(person_email)
-                        removal_count += 1
-                print(f"   ❌ Incompatible - removed mutual entries")
-                print(f"      Reason: {get_incompatibility_reason(person_data, match_data)}")
         
         if matches:
             filtered_entry.extend(matches)
@@ -329,26 +308,29 @@ def prefilter_by_preferences(similarity_data, csv_file):
             
         filtered_data.append(filtered_entry)
     
-    print("\n=== Filtering Summary ===")
-    print(f"Total entries processed: {len(similarity_data)}")
-    print(f"Compatible matches found: {match_count}")
-    print(f"Incompatible removals: {removal_count}")
-    print(f"Entries with matches: {len([e for e in filtered_data if len(e) > 2])}")
-    
     return filtered_data
 
-def get_incompatibility_reason(person1, person2):
-    """Get human-readable incompatibility reason"""
-    def describe_preference(pref):
-        if pref == "5":
-            return "both male and female"
-        return pref
+def check_compatibility(person1, person2):
+    """Check if two people are compatible using more lenient rules"""
+    # Handle multiple preferences
+    def parse_preferences(pref):
+        if isinstance(pref, str):
+            prefs = [p.strip() for p in pref.split(',')]
+            return [p for p in prefs if p]
+        return [str(pref)]
     
-    if person1["wants"] not in ["No Preference", "5"] and person1["wants"] != person2["gender"]:
-        return f"{person1['gender']} wants {describe_preference(person1['wants'])} but match is {person2['gender']}"
-    if person2["wants"] not in ["No Preference", "5"] and person2["wants"] != person1["gender"]:
-        return f"{person2['gender']} wants {describe_preference(person2['wants'])} but match is {person1['gender']}"
-    return "Unknown incompatibility"
+    person1_wants = parse_preferences(person1["wants"])
+    person2_gender = person2["gender"]
+    
+    # More lenient compatibility rules
+    compatible = (
+        "No Preference" in person1_wants or
+        "5" in person1_wants or  # Accepts both genders
+        person2_gender in person1_wants or
+        any(p.lower() == person2_gender.lower() for p in person1_wants)
+    )
+    
+    return compatible
 
 def load_gender_preferences(csv_file):
     """Load gender and preference data from CSV"""
@@ -456,7 +438,7 @@ def create_cost_matrix(similarity_data):
     return cost_matrix, emails
 
 def create_hungarian_pairs(similarity_data, quality_weight=0.5):
-    """Create optimal pairs using the Hungarian algorithm"""
+    """Create optimal pairs using modified Hungarian algorithm"""
     print("\nStarting Hungarian matching process...")
     
     # Create a set of all unique emails
@@ -472,7 +454,7 @@ def create_hungarian_pairs(similarity_data, quality_weight=0.5):
     # Initialize cost matrix with high costs
     cost_matrix = np.full((n, n), 1000.0)
     
-    # Fill in costs based on mutual compatibility
+    # Fill in costs based on compatibility
     for entry in similarity_data:
         email1 = entry[0]
         matches = [m for m in entry[1:] if m != "No matches found"]
@@ -480,21 +462,19 @@ def create_hungarian_pairs(similarity_data, quality_weight=0.5):
         
         for idx, email2 in enumerate(matches):
             j = email_to_idx[email2]
-            # Check if match is mutual
-            is_mutual = any(row[0] == email2 and email1 in row[1:] for row in similarity_data)
-            if is_mutual:
-                # Convert position to cost (earlier positions = lower cost)
-                cost = idx / len(matches)
-                cost_matrix[i][j] = cost
-                # Make cost symmetric
-                cost_matrix[j][i] = cost
+            # Convert position to cost (earlier positions = lower cost)
+            cost = idx / max(len(matches), 1)  # Avoid division by zero
+            cost_matrix[i][j] = cost
+    
+    # Make matrix symmetric
+    cost_matrix = np.minimum(cost_matrix, cost_matrix.T)
     
     # Run Hungarian algorithm
     row_ind, col_ind = linear_sum_assignment(cost_matrix)
     
-    # Create pairs, ensuring each person appears only once
-    used_emails = set()
+    # Create pairs
     pairs = []
+    used_emails = set()
     
     for i, j in zip(row_ind, col_ind):
         email1, email2 = emails[i], emails[j]
@@ -507,13 +487,7 @@ def create_hungarian_pairs(similarity_data, quality_weight=0.5):
             used_emails.add(email1)
             used_emails.add(email2)
     
-    print(f"Created {len(pairs)} unique pairs using Hungarian algorithm")
-    # Verify no duplicates
-    all_matched = set()
-    for pair in pairs:
-        all_matched.update(pair[:2])
-    assert len(all_matched) == 2 * len(pairs), "Duplicate matches detected"
-    
+    print(f"Created {len(pairs)} pairs")
     return pairs
 
 RECOMMENDED_GRADE_WEIGHT = 0.7
@@ -552,11 +526,15 @@ def load_grade_data(grade_csv: str) -> Dict[str, int]:
     return grade_map
 
 def calculate_grade_penalty(grade1: int, grade2: int) -> float:
-    """Calculate penalty for grade difference"""
+    """Calculate penalty for grade difference with stronger penalties"""
     diff = abs(grade1 - grade2)
-    if diff >= 3:
-        return GRADE_PENALTIES[3]
-    return GRADE_PENALTIES[diff]
+    penalties = {
+        0: 0.0,    # Same grade
+        1: 0.3,    # One grade difference
+        2: 0.7,    # Two grades difference
+        3: 1.0     # Three+ grades difference
+    }
+    return penalties[min(diff, 3)]
 
 def calculate_grade_difference(grade1: int, grade2: int) -> str:
     """Calculate and format the grade difference between two students"""
@@ -568,13 +546,13 @@ def create_grade_sensitive_pairs(similarity_data, grade_data: Dict[str, int], gr
     """Create pairs considering both compatibility and grade"""
     print("\nStarting grade-sensitive Hungarian matching...")
     
-    # Create cost matrix as before
+    # Create initial sets
     emails = sorted(list(set(entry[0] for entry in similarity_data)))
     n = len(emails)
     email_to_idx = {email: i for i, email in enumerate(emails)}
     
-    # Initialize cost matrix
-    cost_matrix = np.full((n, n), 1000.0)
+    # Initialize cost matrix with maximum values
+    cost_matrix = np.full((n, n), 999999.0)
     
     # Fill cost matrix with combined costs
     for entry in similarity_data:
@@ -583,27 +561,45 @@ def create_grade_sensitive_pairs(similarity_data, grade_data: Dict[str, int], gr
         i = email_to_idx[email1]
         
         for idx, email2 in enumerate(matches):
+            if email2 not in email_to_idx:
+                continue
+                
             j = email_to_idx[email2]
             
-            # Base compatibility cost
-            base_cost = idx / len(matches)
+            # Calculate base compatibility score (inverse of position)
+            base_score = 1.0 - (idx / len(matches))
             
-            # Add grade penalty if both emails have grade data
-            grade_cost = 0.0
+            # Calculate grade score
+            grade_score = 1.0  # Default if no grade data
             if email1 in grade_data and email2 in grade_data:
-                grade_cost = calculate_grade_penalty(grade_data[email1], grade_data[email2])
+                grade_diff = abs(grade_data[email1] - grade_data[email2])
+                # Penalize based on grade difference
+                if grade_diff == 0:
+                    grade_score = 1.0
+                elif grade_diff == 1:
+                    grade_score = 0.8
+                elif grade_diff == 2:
+                    grade_score = 0.4
+                else:
+                    grade_score = 0.0  # Strong penalty for 3+ grade difference
             
-            # Combine costs with weight
-            combined_cost = (1 - grade_weight) * base_cost + grade_weight * grade_cost
-            cost_matrix[i][j] = combined_cost
-            cost_matrix[j][i] = combined_cost
+            # Combine scores with weights
+            combined_score = ((1 - grade_weight) * base_score + 
+                            grade_weight * grade_score)
+            
+            # Convert score to cost (higher score = lower cost)
+            cost = 1.0 - combined_score
+            
+            # Make cost matrix symmetric
+            cost_matrix[i][j] = cost
+            cost_matrix[j][i] = cost
     
     # Run Hungarian algorithm
     row_ind, col_ind = linear_sum_assignment(cost_matrix)
     
     # Create pairs
-    used_emails = set()
     pairs = []
+    used_emails = set()
     
     for i, j in zip(row_ind, col_ind):
         email1, email2 = emails[i], emails[j]
@@ -611,16 +607,31 @@ def create_grade_sensitive_pairs(similarity_data, grade_data: Dict[str, int], gr
             email2 not in used_emails and 
             cost_matrix[i][j] < 999.0):
             
+            # Calculate quality score (inverse of cost)
             quality = 1.0 - cost_matrix[i][j]
+            
+            # Skip pairs with very low quality
+            if quality < 0.3:  # Minimum quality threshold
+                continue
+                
             grade1 = grade_data.get(email1)
             grade2 = grade_data.get(email2)
             grade_diff = calculate_grade_difference(grade1, grade2)
+            
+            # Skip pairs with too large grade difference
+            if grade_diff.isdigit() and int(grade_diff) > 2:
+                continue
+                
             grade_info = f" (grades: {grade1}, {grade2})"
             
             pairs.append([email1, email2, quality, grade_info, grade_diff])
             used_emails.add(email1)
             used_emails.add(email2)
     
+    # Sort pairs by quality
+    pairs.sort(key=lambda x: float(x[2]), reverse=True)
+    
+    print(f"Created {len(pairs)} grade-sensitive pairs")
     return pairs
 
 def create_optimal_pairs(filtered_similarity_file, csv_file, grade_csv, quality_weight=0.5, grade_weight=RECOMMENDED_GRADE_WEIGHT):
@@ -1024,4 +1035,82 @@ def main():
 if __name__ == "__main__":
     install_dependencies()
     main()
+
+def check_grade_compatibility(person1_grade, person2_grade):
+    """Check if two people's grades are compatible using stricter rules"""
+    try:
+        grade_diff = abs(int(person1_grade) - int(person2_grade))
+        return grade_diff <= MAX_GRADE_DIFFERENCE
+    except (ValueError, TypeError):
+        return False
+
+def adjust_match_quality(base_quality, grade1, grade2):
+    """Adjust match quality based on grade difference"""
+    try:
+        grade_diff = abs(int(grade1) - int(grade2))
+        penalty = grade_diff * GRADE_PENALTY_FACTOR
+        adjusted_quality = base_quality * (1 - penalty)
+        return max(0, adjusted_quality)
+    except (ValueError, TypeError):
+        return 0
+
+def create_pairs(similarity_data, preferences_data):
+    """Create pairs with stricter grade and quality requirements"""
+    pairs = []
+    used = set()
+    
+    # Sort by match quality first 
+    sorted_entries = sorted(similarity_data, 
+                          key=lambda x: float(x[2]) if len(x) > 2 else 0, 
+                          reverse=True)
+    
+    for entry in sorted_entries:
+        if len(entry) < 2:
+            continue
+            
+        person1 = entry[0]
+        if person1 in used:
+            continue
+            
+        person1_data = preferences_data.get(person1)
+        if not person1_data:
+            continue
+            
+        # Find best available match
+        best_match = None
+        best_quality = 0
+        
+        for potential_match in entry[1:]:
+            if potential_match in used:
+                continue
+                
+            person2_data = preferences_data.get(potential_match)
+            if not person2_data:
+                continue
+                
+            # Check grade compatibility
+            if not check_grade_compatibility(person1_data['grade'], 
+                                          person2_data['grade']):
+                continue
+                
+            # Calculate adjusted match quality
+            base_quality = float(entry[2]) if len(entry) > 2 else 0
+            adjusted_quality = adjust_match_quality(
+                base_quality,
+                person1_data['grade'],
+                person2_data['grade']
+            )
+            
+            # Check minimum quality threshold
+            if adjusted_quality >= MIN_MATCH_QUALITY:
+                best_match = potential_match
+                best_quality = adjusted_quality
+                break
+        
+        if best_match:
+            pairs.append([person1, best_match, best_quality])
+            used.add(person1)
+            used.add(best_match)
+    
+    return pairs
 
